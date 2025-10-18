@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1760515361564,
+      "tag": "0000_sharp_quasar",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1760545996085,
+      "tag": "0001_silent_baron_zemo",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1760581913075,
+      "tag": "0002_overrated_lady_ursula",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1760583240858,
+      "tag": "0003_bent_selene",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1760769655351,
+      "tag": "0004_free_frightful_four",
+      "breakpoints": true
+    }
+  ]
+}

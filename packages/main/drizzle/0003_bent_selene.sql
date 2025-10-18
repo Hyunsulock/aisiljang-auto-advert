@@ -1,0 +1,1 @@
+ALTER TABLE `offers` ADD `area_pyeong` text;

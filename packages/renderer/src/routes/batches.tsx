@@ -3,6 +3,7 @@ import type { AnyRootRoute } from '@tanstack/react-router';
 import { Button } from '../components/ui/button';
 import { useState, useEffect } from 'react';
 import { Play, Trash2, RefreshCw, RotateCcw } from 'lucide-react';
+import { batch } from '@app/preload';
 
 interface Batch {
   id: number;
@@ -31,12 +32,35 @@ function BatchesPage() {
 
   useEffect(() => {
     loadBatches();
+
+    // 실시간 배치 진행 상태 구독
+    const unsubscribe = batch.onProgress((progress: any) => {
+      console.log('배치 진행 상태 수신:', progress);
+
+      // 해당 배치의 상태를 실시간으로 업데이트
+      setBatches((prevBatches) =>
+        prevBatches.map((batch) =>
+          batch.id === progress.batchId
+            ? {
+                ...batch,
+                status: progress.status,
+                completedCount: progress.completedCount,
+                failedCount: progress.failedCount,
+              }
+            : batch
+        )
+      );
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const loadBatches = async () => {
     try {
       setLoading(true);
-      const response = await (window as any).batch.getAll();
+      const response = await batch.getAll();
       if (response.success) {
         setBatches(response.data);
       }
@@ -53,20 +77,32 @@ function BatchesPage() {
     }
 
     try {
-      setLoading(true);
-      const response = await (window as any).batch.execute(batchId);
+      // 배치 실행은 백그라운드에서 실행되므로 await하지 않음
+      batch.execute(batchId).then((response: any) => {
+        if (!response.success) {
+          alert('배치 실행 실패: ' + response.error);
+          loadBatches();
+        } else {
+          // 배치 완료 후 최종 상태 갱신
+          loadBatches();
+        }
+      }).catch((error: any) => {
+        console.error('배치 실행 오류:', error);
+        alert('배치 실행 중 오류가 발생했습니다');
+        loadBatches();
+      });
 
-      if (response.success) {
-        alert('배치 실행이 시작되었습니다');
-        await loadBatches();
-      } else {
-        alert('배치 실행 실패: ' + response.error);
-      }
+      // 즉시 상태를 'removing'으로 업데이트하여 UI 반영
+      setBatches((prevBatches) =>
+        prevBatches.map((batch) =>
+          batch.id === batchId
+            ? { ...batch, status: 'removing' }
+            : batch
+        )
+      );
     } catch (error) {
       console.error('배치 실행 오류:', error);
       alert('배치 실행 중 오류가 발생했습니다');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -77,7 +113,7 @@ function BatchesPage() {
 
     try {
       setLoading(true);
-      const response = await (window as any).batch.delete(batchId);
+      const response = await batch.delete(batchId);
 
       if (response.success) {
         alert('배치가 삭제되었습니다');
@@ -99,20 +135,32 @@ function BatchesPage() {
     }
 
     try {
-      setLoading(true);
-      const response = await (window as any).batch.retry(batchId);
+      // 배치 재시도는 백그라운드에서 실행되므로 await하지 않음
+      batch.retry(batchId).then((response: any) => {
+        if (!response.success) {
+          alert('재시도 실패: ' + response.error);
+          loadBatches();
+        } else {
+          // 배치 완료 후 최종 상태 갱신
+          loadBatches();
+        }
+      }).catch((error: any) => {
+        console.error('재시도 오류:', error);
+        alert('재시도 중 오류가 발생했습니다');
+        loadBatches();
+      });
 
-      if (response.success) {
-        alert('재시도가 시작되었습니다');
-        await loadBatches();
-      } else {
-        alert('재시도 실패: ' + response.error);
-      }
+      // 즉시 상태를 'uploading'으로 업데이트하여 UI 반영
+      setBatches((prevBatches) =>
+        prevBatches.map((batch) =>
+          batch.id === batchId
+            ? { ...batch, status: 'uploading' }
+            : batch
+        )
+      );
     } catch (error) {
       console.error('재시도 오류:', error);
       alert('재시도 중 오류가 발생했습니다');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -251,6 +299,11 @@ function BatchesPage() {
                           {batch.status === 'scheduled' ? '즉시 실행' : '실행'}
                         </Button>
                       )}
+                      {(batch.status === 'removing' || batch.status === 'uploading') && (
+                        <span className="text-xs text-blue-600 font-medium px-2 py-1">
+                          실행 중...
+                        </span>
+                      )}
                       {(batch.status === 'completed' || batch.status === 'failed') && batch.failedCount > 0 && (
                         <Button
                           onClick={() => handleRetryBatch(batch.id)}
@@ -263,16 +316,18 @@ function BatchesPage() {
                           재시도 ({batch.failedCount}건)
                         </Button>
                       )}
-                      <Button
-                        onClick={() => handleDeleteBatch(batch.id)}
-                        disabled={loading}
-                        variant="destructive"
-                        size="sm"
-                        className="flex items-center gap-1"
-                      >
-                        <Trash2 size={14} />
-                        삭제
-                      </Button>
+                      {(batch.status !== 'removing' && batch.status !== 'uploading') && (
+                        <Button
+                          onClick={() => handleDeleteBatch(batch.id)}
+                          disabled={loading}
+                          variant="destructive"
+                          size="sm"
+                          className="flex items-center gap-1"
+                        >
+                          <Trash2 size={14} />
+                          삭제
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>

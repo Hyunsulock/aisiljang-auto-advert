@@ -28,11 +28,43 @@ export const useAuthStore = create<AuthState>((set) => ({
   initialize: async () => {
     try {
       // 현재 세션 확인
-      const { data: { session } } = await supabase.auth.getSession()
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+
+      // 세션 에러가 있으면 (만료된 토큰 등) 로그아웃 처리
+      if (sessionError) {
+        console.error('[authStore] Session error:', sessionError)
+        await supabase.auth.signOut()
+        set({ session: null, user: null, loading: false, initialized: true })
+        return
+      }
+
       set({ session, user: session?.user ?? null, loading: false, initialized: true })
 
-      // 인증 상태 변경 리스너 설정
-      supabase.auth.onAuthStateChange((_event, session) => {
+      // 세션이 있으면 Main 프로세스에 동기화
+      if (session) {
+        console.log('[authStore] Syncing existing session to Main process')
+        const { agency } = await import('@app/preload')
+        await agency.setSession(session.access_token, session.refresh_token)
+      }
+
+      // 인증 상태 변경 리스너 설정 (토큰 refresh 포함)
+      supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log('[authStore] Auth state changed:', event)
+
+        // TOKEN_REFRESHED 이벤트에서도 세션 동기화
+        if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+          if (session) {
+            console.log('[authStore] Syncing session to Main process')
+            const { agency } = await import('@app/preload')
+            await agency.setSession(session.access_token, session.refresh_token)
+          }
+        }
+
+        // SIGNED_OUT 이벤트 처리
+        if (event === 'SIGNED_OUT') {
+          console.log('[authStore] User signed out')
+        }
+
         set({ session, user: session?.user ?? null, loading: false })
       })
     } catch (error) {

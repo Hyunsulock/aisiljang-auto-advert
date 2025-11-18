@@ -62,9 +62,9 @@ export const batches = sqliteTable('batches', {
   // 배치 상태
   // pending: 대기중
   // scheduled: 예약됨
-  // removing: 광고 내리는 중
-  // removed: 광고 내리기 완료
-  // uploading: 광고 올리는 중
+  // modifying: 가격 수정 중
+  // modified: 가격 수정 완료
+  // readvertising: 재광고 중
   // completed: 완료
   // failed: 실패
   status: text('status').notNull().default('pending'),
@@ -98,21 +98,22 @@ export const batchItems = sqliteTable('batch_items', {
 
   // 작업 상태
   // pending: 대기중
-  // removing: 광고 내리는 중
-  // removed: 광고 내리기 완료
-  // uploading: 광고 올리는 중
+  // modifying: 가격 수정 중
+  // modified: 가격 수정 완료
+  // readvertising: 재광고 중
   // completed: 완료
   // failed: 실패
   status: text('status').notNull().default('pending'),
 
   // 단계별 상태 (2단계 워크플로우)
-  removeStatus: text('remove_status').default('pending'), // 광고 내리기 상태 (pending, processing, completed, failed)
-  uploadStatus: text('upload_status').default('pending'), // 광고 올리기 상태 (pending, processing, completed, failed)
+  modifyStatus: text('modify_status').default('pending'), // 가격 수정 상태 (pending, processing, completed, failed)
+  reAdvertiseStatus: text('re_advertise_status').default('pending'), // 재광고 상태 (pending, processing, completed, failed)
 
   // ===== 수정할 정보 (광고 재등록 시 적용) =====
   // null이면 원본 데이터 사용, 값이 있으면 수정된 값 사용
   modifiedPrice: text('modified_price'), // 수정할 가격 (매매가/전세가/보증금, 만원 단위)
   modifiedRent: text('modified_rent'), // 수정할 월세 (만원 단위)
+  modifiedFloorExposure: integer('modified_floor_exposure', { mode: 'boolean' }), // 수정할 층수 노출 여부 (true: 노출, false: 미노출)
 
   // 오류 정보
   errorMessage: text('error_message'), // 오류 메시지
@@ -120,10 +121,36 @@ export const batchItems = sqliteTable('batch_items', {
 
   // 메타 정보
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
-  removeStartedAt: integer('remove_started_at', { mode: 'timestamp' }), // 광고 내리기 시작 시간
-  removeCompletedAt: integer('remove_completed_at', { mode: 'timestamp' }), // 광고 내리기 완료 시간
-  uploadStartedAt: integer('upload_started_at', { mode: 'timestamp' }), // 광고 올리기 시작 시간
-  uploadCompletedAt: integer('upload_completed_at', { mode: 'timestamp' }), // 광고 올리기 완료 시간
+  modifyStartedAt: integer('modify_started_at', { mode: 'timestamp' }), // 가격 수정 시작 시간
+  modifyCompletedAt: integer('modify_completed_at', { mode: 'timestamp' }), // 가격 수정 완료 시간
+  reAdvertiseStartedAt: integer('re_advertise_started_at', { mode: 'timestamp' }), // 재광고 시작 시간
+  reAdvertiseCompletedAt: integer('re_advertise_completed_at', { mode: 'timestamp' }), // 재광고 완료 시간
+});
+
+/**
+ * 경쟁 광고 분석 테이블
+ * 각 매물의 경쟁 광고 분석 결과를 저장
+ */
+export const competingAdsAnalysis = sqliteTable('competing_ads_analysis', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+
+  // 관계
+  offerId: integer('offer_id').notNull().references(() => offers.id, { onDelete: 'cascade' }),
+
+  // 내 광고 정보
+  myRanking: integer('my_ranking'), // 내 광고 순위
+  myFloorExposed: integer('my_floor_exposed', { mode: 'boolean' }), // 내 광고의 층수 노출 여부
+  totalCount: integer('total_count'), // 전체 광고 개수
+
+  // 경쟁 우위 플래그
+  hasFloorExposureAdvantage: integer('has_floor_exposure_advantage', { mode: 'boolean' }), // 경쟁 광고가 층수를 노출했는지
+
+  // 경쟁 광고 데이터 (JSON으로 저장)
+  competingAdsData: text('competing_ads_data'), // JSON 문자열: CompetingAd[]
+
+  // 메타 정보
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
 // 타입 추론을 위한 타입 export
@@ -135,3 +162,6 @@ export type NewBatch = typeof batches.$inferInsert;
 
 export type BatchItem = typeof batchItems.$inferSelect;
 export type NewBatchItem = typeof batchItems.$inferInsert;
+
+export type CompetingAdsAnalysis = typeof competingAdsAnalysis.$inferSelect;
+export type NewCompetingAdsAnalysis = typeof competingAdsAnalysis.$inferInsert;

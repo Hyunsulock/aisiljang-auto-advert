@@ -88,7 +88,13 @@ export function registerBatchHandlers() {
   ipcMain.handle('batch:execute', async (event, batchId: number) => {
     try {
       console.log('🚀 배치 실행 IPC 요청 받음:', batchId);
-      const result = await batchService.executeBatch(batchId);
+
+      // 실시간 진행 상태 콜백
+      const progressCallback = (update: any) => {
+        event.sender.send('batch:progress', update);
+      };
+
+      const result = await batchService.executeBatch(batchId, progressCallback);
       console.log('✅ 배치 실행 성공:', result);
       return {
         success: true,
@@ -109,7 +115,13 @@ export function registerBatchHandlers() {
   ipcMain.handle('batch:retry', async (event, batchId: number) => {
     try {
       console.log('🔄 배치 재시도 IPC 요청 받음:', batchId);
-      const result = await batchService.retryBatch(batchId);
+
+      // 실시간 진행 상태 콜백
+      const progressCallback = (update: any) => {
+        event.sender.send('batch:progress', update);
+      };
+
+      const result = await batchService.retryBatch(batchId, progressCallback);
       console.log('✅ 배치 재시도 성공:', result);
       return {
         success: true,

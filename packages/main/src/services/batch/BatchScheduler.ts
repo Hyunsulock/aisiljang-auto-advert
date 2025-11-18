@@ -1,5 +1,6 @@
 import { BatchRepository } from '../../repositories/BatchRepository.js';
 import { BatchService } from './BatchService.js';
+import { AppDataSource } from '../../db/data-source.js';
 
 /**
  * 배치 스케줄러
@@ -55,6 +56,12 @@ export class BatchScheduler {
    */
   private async checkScheduledBatches() {
     try {
+      // DataSource가 초기화되지 않았으면 스킵
+      if (!AppDataSource.isInitialized) {
+        console.log('⚠️  DataSource가 아직 초기화되지 않았습니다. 스케줄 확인 스킵');
+        return;
+      }
+
       const allBatches = await this.batchRepo.findAll();
       const now = new Date();
 

@@ -58,16 +58,10 @@ export class OfferListScraper {
           const row = $(el);
 
           // 노출채널/검증방식 파싱
-          const adChannelCell = row.find('td').eq(6); // 7번째 <td>
-          const adChannel = adChannelCell.find('.channel').text().trim() || null;
-          const adMethod = adChannelCell
-            .clone()
-            .children()
-            .remove()
-            .end()
-            .text()
-            .replace('/', '')
-            .trim() || null;
+          const adChannelRaw = row.find('td:has(.channel)').text().trim();
+          const adChannel = adChannelRaw.split('/')[0]
+          const adMethod = adChannelRaw.split('/')[1]
+
 
           // 가격 파싱 (보증금/월세 분리)
           const priceText = row.find('.price').text().trim();
@@ -85,10 +79,15 @@ export class OfferListScraper {
           const areaPrivate = row.find('.squareMeter[data-gu="[전]"]').attr('data-value') || null;
           const areaPyeong = convertToPyeong(areaPrivate);
 
+          //거래방식
+          const dealType = row.find('.dealType').text().trim()
+
+
+
           const offer: AipartnerOffer = {
             numberA: row.find('.numberA').text().trim(),
             numberN: row.find('.numberN').text().trim(),
-            type: row.find('td').eq(2).text().trim(),
+            type: row.find('td').eq(3).text().trim(),
             name,
             dong,
             ho,
@@ -96,7 +95,7 @@ export class OfferListScraper {
             areaPublic: row.find('.squareMeter[data-gu="[공]"]').attr('data-value') || null,
             areaPrivate: areaPrivate,
             areaPyeong: areaPyeong,
-            dealType: row.find('.dealType').text().trim(),
+            dealType: dealType,
             price,
             rent,
             adChannel: adChannel,

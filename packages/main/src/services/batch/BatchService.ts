@@ -2,15 +2,29 @@ import { BatchRepository } from '../../repositories/BatchRepository.js';
 import { OfferRepository } from '../../repositories/OfferRepository.js';
 import { chromium } from 'playwright';
 import { AdRemoveScraper } from '../crawler/AdRemoveScraper.js';
-import { AdUploadScraper } from '../crawler/AdUploadScraper.js';
+import { AdModifyScraper } from '../crawler/AdModifyScraper.js';
 import { AipartnerAuthService } from '../crawler/AipartnerAuthService.js';
 
 export interface CreateBatchRequest {
   name: string;
   offerIds: number[];
-  modifiedPrices?: Record<number, { price?: string; rent?: string }>;
+  modifiedPrices?: Record<number, { price?: string; rent?: string; floorExposure?: boolean }>;
   scheduledAt?: string; // ISO 8601 형식의 날짜/시간 문자열
 }
+
+export interface BatchProgressUpdate {
+  batchId: number;
+  status: string;
+  totalCount: number;
+  completedCount: number;
+  failedCount: number;
+  currentItem?: {
+    name: string;
+    index: number;
+  };
+}
+
+export type BatchProgressCallback = (update: BatchProgressUpdate) => void;
 
 /**
  * 배치 작업 관리 서비스
@@ -58,10 +72,11 @@ export class BatchService {
       batchId: batch.id,
       offerId,
       status: 'pending',
-      removeStatus: 'pending',
-      uploadStatus: 'pending',
+      modifyStatus: 'pending',
+      reAdvertiseStatus: 'pending',
       modifiedPrice: request.modifiedPrices?.[offerId]?.price ?? null,
       modifiedRent: request.modifiedPrices?.[offerId]?.rent ?? null,
+      modifiedFloorExposure: request.modifiedPrices?.[offerId]?.floorExposure ?? null,
       retryCount: 0,
     }));
 
@@ -106,7 +121,7 @@ export class BatchService {
   /**
    * 배치 실행
    */
-  async executeBatch(batchId: number) {
+  async executeBatch(batchId: number, progressCallback?: BatchProgressCallback) {
     const batch = await this.batchRepo.findById(batchId);
     if (!batch) {
       throw new Error('배치를 찾을 수 없습니다');
@@ -118,9 +133,18 @@ export class BatchService {
 
     console.log(`🚀 배치 실행 시작 (ID: ${batchId}, 이름: ${batch.name})`);
 
-    // 배치 상태를 'removing'으로 변경
-    await this.batchRepo.updateStatus(batchId, 'removing');
+    // 배치 상태를 'modifying'으로 변경
+    await this.batchRepo.updateStatus(batchId, 'modifying');
     await this.batchRepo.markStarted(batchId);
+
+    // 실시간 진행 상태 전송
+    progressCallback?.({
+      batchId,
+      status: 'modifying',
+      totalCount: batch.totalCount,
+      completedCount: 0,
+      failedCount: 0,
+    });
 
     // 배치 아이템 조회
     const batchItems = await this.batchRepo.findItemsByBatchId(batchId);
@@ -208,7 +232,78 @@ export class BatchService {
 
       console.log('✅ 로그인 성공 - 쿠키:', session.cookies.length, '개');
 
-      // 3. 광고 내리기 실행
+      // 3. 1단계: 가격/층수 노출 변동이 있는 매물들을 모두 한번에 수정
+      const offersToModify = [];
+      for (const item of batchItems) {
+        const dbOffer = dbOffers.find(o => o.id === item.offerId);
+        if (dbOffer && (item.modifiedPrice || item.modifiedRent || item.modifiedFloorExposure !== null)) {
+          offersToModify.push({
+            numberN: dbOffer.numberN,
+            modifiedPrice: item.modifiedPrice || undefined,
+            modifiedRent: item.modifiedRent || undefined,
+            floorExposure: item.modifiedFloorExposure !== null ? item.modifiedFloorExposure : undefined,
+            adStartDate: dbOffer.adStartDate || undefined,
+          });
+        }
+      }
+
+      // 가격 수정이 있는 경우 먼저 모두 처리
+      if (offersToModify.length > 0) {
+        console.log(`\n💰 [1단계] 가격 수정할 매물: ${offersToModify.length}건`);
+
+        // 최적화: 등록일 기준 내림차순 정렬 (최신 매물부터 처리)
+        offersToModify.sort((a, b) => {
+          if (!a.adStartDate || !b.adStartDate) return 0;
+          const dateA = a.adStartDate.replace(/\./g, '');
+          const dateB = b.adStartDate.replace(/\./g, '');
+          return dateB.localeCompare(dateA);
+        });
+
+        console.log(`📅 등록일 순서 (최신순): ${offersToModify.map(o => o.adStartDate).join(', ')}`);
+
+        const adModifyScraper = new AdModifyScraper();
+        const modifyResults = await adModifyScraper.modifyPricesBatch(
+          page,
+          offersToModify,
+          (message) => {
+            console.log(`[가격 수정] ${message}`);
+          }
+        );
+
+        const modifySuccessCount = modifyResults.results.filter(r => r.success).length;
+        const modifyFailCount = modifyResults.results.filter(r => !r.success).length;
+
+        // 가격 수정 결과를 배치 아이템에 반영
+        for (const result of modifyResults.results) {
+          const dbOffer = dbOffers.find(o => o.numberN === result.numberN);
+          const batchItem = dbOffer ? batchItems.find(item => item.offerId === dbOffer.id) : undefined;
+
+          if (batchItem) {
+            if (result.success) {
+              await this.batchRepo.updateItemModifyStatus(batchItem.id, 'completed');
+            } else {
+              await this.batchRepo.updateItemModifyStatus(batchItem.id, 'failed');
+            }
+          }
+        }
+
+        console.log(`✅ [1단계] 가격 수정 완료: 성공 ${modifySuccessCount}건, 실패 ${modifyFailCount}건\n`);
+      } else {
+        console.log(`\n💰 [1단계] 가격 수정할 매물 없음\n`);
+      }
+
+      // 4. 2단계: 모든 매물의 재광고 작업 일괄 실행
+      console.log(`🔄 [2단계] 재광고 시작: ${offers.length}건`);
+      await this.batchRepo.updateStatus(batchId, 'readvertising');
+
+      progressCallback?.({
+        batchId,
+        status: 'readvertising',
+        totalCount: batch.totalCount,
+        completedCount: 0,
+        failedCount: 0,
+      });
+
       const adRemoveScraper = new AdRemoveScraper();
       let completedCount = 0;
       let failedCount = 0;
@@ -216,94 +311,44 @@ export class BatchService {
       const results = await adRemoveScraper.removeAdsInBatch(
         page,
         offers,
-        async (current, total, offer, result) => {
+        async (current: number, total: number, offer: any, result: { success: boolean; error?: string }) => {
           console.log(`[${current}/${total}] ${offer.name}: ${result.success ? '✅ 성공' : '❌ 실패'}`);
 
-          // 배치 아이템 상태 업데이트
-          // numberN으로 매물을 찾아서 ID 매칭
           const matchingOffer = dbOffers.find(o => o.numberN === offer.numberN);
           const batchItem = matchingOffer ? batchItems.find(item => item.offerId === matchingOffer.id) : undefined;
 
           if (batchItem) {
             if (result.success) {
               completedCount++;
-              await this.batchRepo.updateItemRemoveStatus(batchItem.id, 'completed');
+              await this.batchRepo.updateItemReAdvertiseStatus(batchItem.id, 'completed');
+              await this.batchRepo.updateItemStatus(batchItem.id, 'completed');
             } else {
               failedCount++;
-              await this.batchRepo.updateItemRemoveStatus(batchItem.id, 'failed');
+              await this.batchRepo.updateItemReAdvertiseStatus(batchItem.id, 'failed');
               await this.batchRepo.updateItemStatus(batchItem.id, 'failed', result.error);
             }
 
-            // 배치 진행 상황 업데이트
             await this.batchRepo.updateProgress(batchId, completedCount, failedCount);
+
+            progressCallback?.({
+              batchId,
+              status: 'readvertising',
+              totalCount: total,
+              completedCount,
+              failedCount,
+              currentItem: {
+                name: offer.name,
+                index: current,
+              },
+            });
           }
         }
       );
 
-      const removeSuccessCount = results.filter(r => r.success).length;
-      const removeFailCount = results.filter(r => !r.success).length;
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.filter(r => !r.success).length;
 
-      console.log(`\n📊 광고 내리기 결과: 성공 ${removeSuccessCount}건, 실패 ${removeFailCount}건`);
-
-      // 4. 광고 올리기 실행 (광고 내리기에 성공한 매물만)
-      console.log('\n🔼 광고 올리기 단계 시작...');
-      await this.batchRepo.updateStatus(batchId, 'uploading');
-
-      const successfulOffers = results
-        .filter(r => r.success)
-        .map(r => r.offer);
-
-      if (successfulOffers.length === 0) {
-        console.log('⚠️  광고 내리기에 성공한 매물이 없어 올리기를 건너뜁니다');
-      } else {
-        const adUploadScraper = new AdUploadScraper();
-
-        // 수정된 가격 정보를 numberN 기준으로 변환
-        const modifiedPricesByNumberN: Record<string, { price?: string; rent?: string }> = {};
-        for (const item of batchItems) {
-          const dbOffer = dbOffers.find(o => o.id === item.offerId);
-          if (dbOffer && (item.modifiedPrice || item.modifiedRent)) {
-            modifiedPricesByNumberN[dbOffer.numberN] = {
-              price: item.modifiedPrice || undefined,
-              rent: item.modifiedRent || undefined,
-            };
-          }
-        }
-
-        const uploadResults = await adUploadScraper.uploadAdsInBatch(
-          page,
-          successfulOffers,
-          modifiedPricesByNumberN,
-          async (current, total, offer, result) => {
-            console.log(`[${current}/${total}] ${offer.name}: ${result.success ? '✅ 성공' : '❌ 실패'}`);
-
-            // 배치 아이템 상태 업데이트
-            const matchingOffer = dbOffers.find(o => o.numberN === offer.numberN);
-            const batchItem = matchingOffer ? batchItems.find(item => item.offerId === matchingOffer.id) : undefined;
-
-            if (batchItem) {
-              if (result.success) {
-                await this.batchRepo.updateItemUploadStatus(batchItem.id, 'completed');
-                await this.batchRepo.updateItemStatus(batchItem.id, 'completed');
-              } else {
-                await this.batchRepo.updateItemUploadStatus(batchItem.id, 'failed');
-                await this.batchRepo.updateItemStatus(batchItem.id, 'failed', result.error);
-                failedCount++;
-              }
-
-              // 배치 진행 상황 업데이트
-              const totalCompleted = await this.batchRepo.findItemsByBatchId(batchId)
-                .then(items => items.filter(i => i.status === 'completed').length);
-              await this.batchRepo.updateProgress(batchId, totalCompleted, failedCount);
-            }
-          }
-        );
-
-        const uploadSuccessCount = uploadResults.filter(r => r.success).length;
-        const uploadFailCount = uploadResults.filter(r => !r.success).length;
-
-        console.log(`\n📊 광고 올리기 결과: 성공 ${uploadSuccessCount}건, 실패 ${uploadFailCount}건`);
-      }
+      console.log(`\n📊 [2단계] 재광고 결과: 성공 ${successCount}건, 실패 ${failCount}건`);
 
       // 5. 브라우저 종료
       await browser.close();
@@ -316,11 +361,10 @@ export class BatchService {
 
       return {
         success: true,
-        message: `배치 실행 완료: 광고 내리기 ${removeSuccessCount}건, 광고 올리기 ${successfulOffers.length}건`,
+        message: `배치 실행 완료: 재광고 성공 ${successCount}건, 실패 ${failCount}건`,
         results: {
-          removed: removeSuccessCount,
-          uploaded: successfulOffers.length,
-          failed: failedCount,
+          completed: successCount,
+          failed: failCount,
         },
       };
 
@@ -343,7 +387,7 @@ export class BatchService {
   /**
    * 배치 재시도 (실패한 항목만)
    */
-  async retryBatch(batchId: number) {
+  async retryBatch(batchId: number, progressCallback?: BatchProgressCallback) {
     const batch = await this.batchRepo.findById(batchId);
     if (!batch) {
       throw new Error('배치를 찾을 수 없습니다');
@@ -363,8 +407,19 @@ export class BatchService {
 
     console.log(`📊 재시도할 항목 수: ${failedItems.length}건`);
 
-    // 배치 상태를 'uploading'으로 변경
-    await this.batchRepo.updateStatus(batchId, 'uploading');
+    // 배치 상태를 'readvertising'으로 변경
+    await this.batchRepo.updateStatus(batchId, 'readvertising');
+
+    // 실시간 진행 상태 전송
+    const allItemsBeforeRetry = await this.batchRepo.findItemsByBatchId(batchId);
+    const currentCompleted = allItemsBeforeRetry.filter((i: any) => i.status === 'completed').length;
+    progressCallback?.({
+      batchId,
+      status: 'readvertising',
+      totalCount: batch.totalCount,
+      completedCount: currentCompleted,
+      failedCount: failedItems.length,
+    });
 
     // 실패한 항목들의 상태 초기화
     for (const item of failedItems) {
@@ -407,7 +462,7 @@ export class BatchService {
       total: offer.total,
     }));
 
-    console.log(`📊 총 ${offers.length}개 매물의 광고를 올립니다`);
+    console.log(`📊 총 ${offers.length}개 매물의 재광고를 시도합니다`);
 
     let browser;
     try {
@@ -451,8 +506,8 @@ export class BatchService {
 
       console.log('✅ 로그인 성공 - 쿠키:', session.cookies.length, '개');
 
-      // 3. 광고 올리기 실행
-      const adUploadScraper = new AdUploadScraper();
+      // 3. 재광고 실행
+      const adRemoveScraper = new AdRemoveScraper();
       let successCount = 0;
       let newFailCount = 0;
 
@@ -468,11 +523,10 @@ export class BatchService {
         }
       }
 
-      const uploadResults = await adUploadScraper.uploadAdsInBatch(
+      const results = await adRemoveScraper.removeAdsInBatch(
         page,
         offers,
-        modifiedPricesByNumberN,
-        async (current, total, offer, result) => {
+        async (current: number, total: number, offer: any, result: { success: boolean; error?: string }) => {
           console.log(`[${current}/${total}] ${offer.name}: ${result.success ? '✅ 성공' : '❌ 실패'}`);
 
           // 배치 아이템 상태 업데이트
@@ -482,27 +536,41 @@ export class BatchService {
           if (batchItem) {
             if (result.success) {
               successCount++;
-              await this.batchRepo.updateItemUploadStatus(batchItem.id, 'completed');
+              await this.batchRepo.updateItemModifyStatus(batchItem.id, 'completed');
+              await this.batchRepo.updateItemReAdvertiseStatus(batchItem.id, 'completed');
               await this.batchRepo.updateItemStatus(batchItem.id, 'completed');
             } else {
               newFailCount++;
-              await this.batchRepo.updateItemUploadStatus(batchItem.id, 'failed');
+              await this.batchRepo.updateItemModifyStatus(batchItem.id, 'failed');
               await this.batchRepo.updateItemStatus(batchItem.id, 'failed', result.error);
             }
 
             // 배치 진행 상황 업데이트
             const allItems = await this.batchRepo.findItemsByBatchId(batchId);
-            const totalCompleted = allItems.filter(i => i.status === 'completed').length;
-            const totalFailed = allItems.filter(i => i.status === 'failed').length;
+            const totalCompleted = allItems.filter((i: any) => i.status === 'completed').length;
+            const totalFailed = allItems.filter((i: any) => i.status === 'failed').length;
             await this.batchRepo.updateProgress(batchId, totalCompleted, totalFailed);
+
+            // 실시간 진행 상태 전송
+            progressCallback?.({
+              batchId,
+              status: 'readvertising',
+              totalCount: batch.totalCount,
+              completedCount: totalCompleted,
+              failedCount: totalFailed,
+              currentItem: {
+                name: offer.name,
+                index: current,
+              },
+            });
           }
         }
       );
 
-      const uploadSuccessCount = uploadResults.filter(r => r.success).length;
-      const uploadFailCount = uploadResults.filter(r => !r.success).length;
+      const retrySuccessCount = results.filter((r: any) => r.success).length;
+      const retryFailCount = results.filter((r: any) => !r.success).length;
 
-      console.log(`\n📊 광고 올리기 결과: 성공 ${uploadSuccessCount}건, 실패 ${uploadFailCount}건`);
+      console.log(`\n📊 재광고 재시도 결과: 성공 ${retrySuccessCount}건, 실패 ${retryFailCount}건`);
 
       // 4. 브라우저 종료
       await browser.close();
@@ -514,11 +582,11 @@ export class BatchService {
 
       return {
         success: true,
-        message: `배치 재시도 완료: 성공 ${uploadSuccessCount}건, 실패 ${uploadFailCount}건`,
+        message: `배치 재시도 완료: 성공 ${retrySuccessCount}건, 실패 ${retryFailCount}건`,
         results: {
           retried: failedItems.length,
-          success: uploadSuccessCount,
-          failed: uploadFailCount,
+          success: retrySuccessCount,
+          failed: retryFailCount,
         },
       };
 

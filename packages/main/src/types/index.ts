@@ -44,6 +44,7 @@ export interface OfferWithRank extends AipartnerOffer {
   isShared: boolean | null;
   sharedCount: number | null;
   total: number | null;
+  rankingAnalysis?: RankingAnalysis | null;
 }
 
 /**
@@ -54,4 +55,53 @@ export interface CrawlerProgress {
   current: number;
   total: number;
   message: string;
+}
+
+/**
+ * 네이버 API 응답 매물 정보
+ */
+export interface NaverArticle {
+  articleNo: string;
+  articleName: string;
+  tradeTypeName: string;
+  dealOrWarrantPrc: string;
+  floorInfo: string;
+  direction: string;
+  articleConfirmYmd: string;
+  realtorName?: string;
+  buildingName?: string;
+  detailAddress?: string;
+  area1?: number;
+  area2?: number;
+  areaName?: string;
+  verificationTypeCode?: string;
+  [key: string]: any;
+}
+
+/**
+ * 경쟁 광고 분석 결과
+ */
+export interface CompetingAd {
+  articleNo: string;
+  ranking: number;
+  price: string;
+  floorInfo: string;
+  isFloorExposed: boolean; // 층수가 숫자로 노출되는지 (예: "12/25")
+  articleConfirmYmd: string;
+  realtorName: string; // 부동산 이름
+  verificationTypeCode?: string;
+  isPriceLower: boolean; // 내 광고보다 가격이 낮은지
+  isPriceHigher: boolean; // 내 광고보다 가격이 높은지
+}
+
+/**
+ * 랭킹 분석 결과
+ */
+export interface RankingAnalysis {
+  myArticle: NaverArticle | null;
+  myRanking: number | null;
+  myFloorExposed: boolean; // 내 광고의 층수 노출 여부
+  totalCount: number;
+  competingAds: CompetingAd[]; // 나보다 앞선 같은 매물
+  hasFloorExposureAdvantage: boolean; // 다른 광고들이 층수 노출하는지
 }

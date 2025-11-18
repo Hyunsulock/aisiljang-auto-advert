@@ -2,14 +2,51 @@ import { createRoute } from '@tanstack/react-router';
 import type { AnyRootRoute } from '@tanstack/react-router';
 import { Database, Layers } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
+import { useUserProfile } from '../hooks/useAgency';
+import { useAuthStore } from '../stores/authStore';
 
 function HomePage() {
+  const { user, initialized } = useAuthStore();
+  const { data: profile } = useUserProfile(initialized && !!user);
+
   return (
     <div className="p-8 max-w-6xl mx-auto">
       <div className="mb-12 text-center">
         <h1 className="text-5xl font-bold mb-4">이실장 광고 자동화</h1>
         <p className="text-xl text-gray-600">네이버 부동산 광고를 자동으로 관리하세요</p>
       </div>
+
+      {/* 사용자 정보 */}
+      {profile && (
+        <div className="mb-8 max-w-4xl mx-auto">
+          <div className="rounded-xl shadow-lg p-6 border-2 bg-gradient-to-br from-blue-50 to-purple-50 border-blue-200">
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">{profile.agency.name}</h3>
+                <p className="text-sm text-gray-600">{user?.email}</p>
+                <p className="text-sm text-gray-600">
+                  권한: {profile.role === 'admin' ? '관리자' : '멤버'}
+                </p>
+              </div>
+
+              {profile.agency.subscription_end_date && (
+                <div className="pt-3 border-t border-blue-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-gray-700">구독 종료일</span>
+                    <span className="text-sm font-bold text-blue-700">
+                      {new Date(profile.agency.subscription_end_date).toLocaleDateString('ko-KR', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 메인 작업 버튼 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">

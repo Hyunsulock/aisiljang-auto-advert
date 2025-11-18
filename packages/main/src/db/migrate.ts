@@ -3,9 +3,14 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { join } from 'path';
 import { mkdirSync } from 'fs';
+import { app } from 'electron';
 
 // 데이터베이스 파일 경로
-const DB_DIR = join(process.cwd(), 'data');
+// 개발 환경에서는 프로젝트 루트의 data 폴더 사용
+// 프로덕션에서는 userData 경로 사용
+const DB_DIR = app.isPackaged
+  ? join(app.getPath('userData'), 'data')
+  : join(process.cwd(), 'data');
 const DB_PATH = join(DB_DIR, 'app.db');
 
 // data 디렉토리 생성 (없으면)

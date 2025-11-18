@@ -36,6 +36,34 @@
       "when": 1760769655351,
       "tag": "0004_free_frightful_four",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1761583544778,
+      "tag": "0005_exotic_karen_page",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1761584514435,
+      "tag": "0006_lowly_korg",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1730705000000,
+      "tag": "0007_rename_batch_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1730992200000,
+      "tag": "0008_add_floor_exposure_to_batch_items",
+      "breakpoints": true
     }
   ]
 }

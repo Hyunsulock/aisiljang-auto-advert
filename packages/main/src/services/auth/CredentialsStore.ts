@@ -1,4 +1,4 @@
-import { safeStorage } from 'electron';
+import { safeStorage, app } from 'electron';
 import { join } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 
@@ -15,7 +15,10 @@ export class CredentialsStore {
   private credentialsPath: string;
 
   constructor() {
-    const dataDir = join(process.cwd(), 'data');
+    // 패키징된 앱에서도 작동하도록 userData 경로 사용
+    const dataDir = app.isPackaged
+      ? join(app.getPath('userData'), 'data')
+      : join(process.cwd(), 'data');
 
     // data 디렉토리 생성 (없으면)
     if (!existsSync(dataDir)) {

@@ -6,17 +6,18 @@ function send(channel: string, message: string) {
   return ipcRenderer.invoke(channel, message);
 }
 
+
+
 // Crawler API
 const crawler = {
-  // 매물 크롤링
   fetchOffers: (options?: { includeRanking?: boolean }) =>
     ipcRenderer.invoke('crawler:fetch-offers', options),
-
-  // 크롤링 취소
+  fetchSingleRank: (offerId: string) =>
+    ipcRenderer.invoke('crawler:fetch-single-rank', offerId),
+  analyzeRanking: (offerId: string, buildingName?: string, price?: string) =>
+    ipcRenderer.invoke('crawler:analyze-ranking', { offerId, buildingName, price }),
   cancel: () =>
     ipcRenderer.invoke('crawler:cancel'),
-
-  // 진행 상황 수신
   onProgress: (callback: (progress: any) => void) => {
     const subscription = (_event: any, progress: any) => callback(progress);
     ipcRenderer.on('crawler:progress', subscription);
@@ -26,17 +27,116 @@ const crawler = {
 
 // Offers API
 const offers = {
-  // 모든 매물 조회
   getAll: () =>
     ipcRenderer.invoke('offers:get-all'),
-
-  // 광고중인 매물만 조회
   getAdvertising: () =>
     ipcRenderer.invoke('offers:get-advertising'),
-
-  // 매물 개수 조회
   count: () =>
     ipcRenderer.invoke('offers:count'),
+  deleteAll: () =>
+    ipcRenderer.invoke('offers:delete-all'),
 };
 
-export {sha256sum, versions, send, crawler, offers};
+// DB API
+const db = {
+  migrate: () =>
+    ipcRenderer.invoke('db:migrate'),
+};
+
+// Batch API
+const batch = {
+  create: (request: any) =>
+    ipcRenderer.invoke('batch:create', request),
+  getAll: () =>
+    ipcRenderer.invoke('batch:get-all'),
+  getDetail: (batchId: number) =>
+    ipcRenderer.invoke('batch:get-detail', batchId),
+  delete: (batchId: number) =>
+    ipcRenderer.invoke('batch:delete', batchId),
+  execute: (batchId: number) =>
+    ipcRenderer.invoke('batch:execute', batchId),
+  retry: (batchId: number) =>
+    ipcRenderer.invoke('batch:retry', batchId),
+  onProgress: (callback: (progress: any) => void) => {
+    const subscription = (_event: any, progress: any) => callback(progress);
+    ipcRenderer.on('batch:progress', subscription);
+    return () => ipcRenderer.removeListener('batch:progress', subscription);
+  },
+};
+
+// Auth API
+const auth = {
+  saveCredentials: (credentials: any) =>
+    ipcRenderer.invoke('auth:save-credentials', credentials),
+  getCredentials: () =>
+    ipcRenderer.invoke('auth:get-credentials'),
+  deleteCredentials: () =>
+    ipcRenderer.invoke('auth:delete-credentials'),
+  hasCredentials: () =>
+    ipcRenderer.invoke('auth:has-credentials'),
+};
+
+// Ad Test API
+const adTest = {
+  removeAd: (numberN: string) =>
+    ipcRenderer.invoke('adTest:removeAd', numberN),
+  modifyPrice: (params: { numberN: string; modifiedPrice?: string; modifiedRent?: string }) =>
+    ipcRenderer.invoke('adTest:modifyPrice', params),
+};
+
+// Property Owner API
+const propertyOwner = {
+  setSession: (accessToken: string, refreshToken: string) =>
+    ipcRenderer.invoke('propertyOwner:setSession', accessToken, refreshToken),
+  get: (propertyName: string, dong: string, ho: string) =>
+    ipcRenderer.invoke('propertyOwner:get', propertyName, dong, ho),
+  save: (
+    propertyName: string,
+    dong: string,
+    ho: string,
+    verificationInfo: any,
+    documentFilePath?: string,
+    registerFilePath?: string,
+    powerOfAttorneyFilePath?: string
+  ) =>
+    ipcRenderer.invoke(
+      'propertyOwner:save',
+      propertyName,
+      dong,
+      ho,
+      verificationInfo,
+      documentFilePath,
+      registerFilePath,
+      powerOfAttorneyFilePath
+    ),
+  delete: (propertyName: string, dong: string, ho: string) =>
+    ipcRenderer.invoke('propertyOwner:delete', propertyName, dong, ho),
+  deleteFile: (propertyName: string, dong: string, ho: string, fileType: 'document' | 'register' | 'powerOfAttorney') =>
+    ipcRenderer.invoke('propertyOwner:deleteFile', propertyName, dong, ho, fileType),
+  selectFile: () =>
+    ipcRenderer.invoke('propertyOwner:selectFile'),
+  downloadFile: (storageFilePath: string, saveAsName: string) =>
+    ipcRenderer.invoke('propertyOwner:downloadFile', storageFilePath, saveAsName),
+};
+
+// Agency API
+const agency = {
+  setSession: (accessToken: string, refreshToken: string) =>
+    ipcRenderer.invoke('agency:setSession', accessToken, refreshToken),
+  getUserProfile: () =>
+    ipcRenderer.invoke('agency:getUserProfile'),
+  create: (agencyName: string, subscriptionMonths?: number) =>
+    ipcRenderer.invoke('agency:create', agencyName, subscriptionMonths),
+  registerMachineId: () =>
+    ipcRenderer.invoke('agency:registerMachineId'),
+  getCurrentMachineId: () =>
+    ipcRenderer.invoke('agency:getCurrentMachineId'),
+  checkSubscriptionStatus: () =>
+    ipcRenderer.invoke('agency:checkSubscriptionStatus'),
+  submitJoinRequest: (agencyName: string) =>
+    ipcRenderer.invoke('agency:submitJoinRequest', agencyName),
+  submitMachineIdRequest: () =>
+    ipcRenderer.invoke('agency:submitMachineIdRequest'),
+};
+
+export {sha256sum, versions, send, crawler, offers, db, batch, auth, adTest, propertyOwner, agency};

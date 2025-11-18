@@ -21,16 +21,41 @@ if (process.env.NODE_ENV === 'development' || process.env.PLAYWRIGHT_TEST === 't
  * the main module remains simplistic and efficient
  * as it receives initialization instructions rather than direct module imports.
  */
+
+// Preload 경로 결정 - 항상 import.meta.resolve 사용 (estate-advert 방식)
+const getPreloadPath = () => {
+  return fileURLToPath(import.meta.resolve('@app/preload/exposed.mjs'));
+};
+
+const getRendererPath = () => {
+  if (process.env.MODE === 'development' && !!process.env.VITE_DEV_SERVER_URL) {
+    return new URL(process.env.VITE_DEV_SERVER_URL);
+  } else {
+    return {
+      path: fileURLToPath(import.meta.resolve('@app/renderer')),
+    };
+  }
+};
+
+const preloadPath = getPreloadPath();
+const rendererPath = getRendererPath();
+
+console.log('📍 Preload path:', preloadPath);
+console.log('📍 Renderer path:', rendererPath);
+
+// 파일 존재 여부 확인
+import { existsSync } from 'node:fs';
+if (existsSync(preloadPath)) {
+  console.log('✅ Preload file exists');
+} else {
+  console.error('❌ Preload file NOT found at:', preloadPath);
+}
+
 initApp(
   {
-    renderer: (process.env.MODE === 'development' && !!process.env.VITE_DEV_SERVER_URL) ?
-      new URL(process.env.VITE_DEV_SERVER_URL)
-      : {
-        path: fileURLToPath(import.meta.resolve('@app/renderer')),
-      },
-
+    renderer: rendererPath,
     preload: {
-      path: fileURLToPath(import.meta.resolve('@app/preload/exposed.mjs')),
+      path: preloadPath,
     },
   },
 );

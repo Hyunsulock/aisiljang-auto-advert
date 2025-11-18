@@ -1,5 +1,9 @@
 import type { Page } from 'playwright';
 import type { AipartnerOffer } from '../../types/index.js';
+import { FileStorageService } from '../FileStorageService.js';
+import { app } from 'electron';
+import { join } from 'path';
+import { mkdirSync, existsSync } from 'fs';
 
 /**
  * 광고 올리기 스크래퍼
@@ -7,11 +11,32 @@ import type { AipartnerOffer } from '../../types/index.js';
  * 이실장 사이트에서 "광고 종료" 상태의 매물을 다시 광고 등록하는 작업을 수행합니다.
  */
 export class AdUploadScraper {
+  private fileStorageService: FileStorageService;
+
+  constructor() {
+    this.fileStorageService = new FileStorageService();
+  }
+
   /**
    * 지연 함수
    */
   private async delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * 임시 다운로드 디렉토리 경로 반환
+   */
+  private getTempDownloadDir(): string {
+    const tempDir = app.isPackaged
+      ? join(app.getPath('userData'), 'temp_downloads')
+      : join(process.cwd(), 'temp_downloads');
+
+    if (!existsSync(tempDir)) {
+      mkdirSync(tempDir, { recursive: true });
+    }
+
+    return tempDir;
   }
 
   /**
@@ -21,13 +46,19 @@ export class AdUploadScraper {
    * @param offer 광고를 올릴 매물 정보
    * @param modifiedPrice 수정할 가격 (선택사항)
    * @param modifiedRent 수정할 월세 (선택사항)
+   * @param verificationFiles (신)홍보확인서 파일들 (선택사항)
    * @returns 성공 여부
    */
   async uploadAd(
     page: Page,
     offer: AipartnerOffer,
     modifiedPrice?: string,
-    modifiedRent?: string
+    modifiedRent?: string,
+    verificationFiles?: {
+      documentFilePath?: string; // 서류 첨부 파일 (Supabase Storage 경로)
+      powerOfAttorneyFilePath?: string; // 위임장 파일 (Supabase Storage 경로)
+      registerFilePath?: string; // 등기부등본 파일 (Supabase Storage 경로)
+    }
   ): Promise<{ success: boolean; error?: string }> {
     try {
       console.log(`🔼 광고 올리기 시작: ${offer.name} (numberN: ${offer.numberN})`);
@@ -248,8 +279,9 @@ export class AdUploadScraper {
       await cancelBtn.scrollIntoViewIfNeeded();
       await this.delay(2000);
 
-      await cancelBtn.click();
-      console.log('✅ btnCancel 버튼 클릭 완료');
+      await Promise.all([
+        cancelBtn.click(),
+      ]);
 
       // Step 12: Wait for ad_list page
       await page.waitForFunction(

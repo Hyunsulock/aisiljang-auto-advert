@@ -7,6 +7,11 @@
     "db:migrate": "drizzle-kit migrate",
     "db:generate": "drizzle-kit generate"
   },
+  "files": [
+    "dist/**",
+    "drizzle/**",
+    "package.json"
+  ],
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -16,16 +21,24 @@
   "dependencies": {
     "@app/preload": "*",
     "@app/renderer": "*",
+    "@supabase/supabase-js": "^2.78.0",
     "@types/better-sqlite3": "^7.6.13",
     "axios": "^1.12.2",
+    "axios-cookiejar-support": "^6.0.4",
     "better-sqlite3": "^12.4.1",
     "cheerio": "^1.1.2",
+    "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.5",
     "drizzle-orm": "^0.44.6",
     "electron-updater": "6.6.2",
+    "https-proxy-agent": "^7.0.6",
+    "node-machine-id": "^1.1.12",
     "pino": "^10.0.0",
     "pino-pretty": "^13.1.2",
-    "playwright": "^1.56.0"
+    "playwright": "^1.56.0",
+    "reflect-metadata": "^0.2.2",
+    "tough-cookie": "^5.1.2",
+    "typeorm": "^0.3.27"
   },
   "devDependencies": {
     "@app/electron-versions": "*",

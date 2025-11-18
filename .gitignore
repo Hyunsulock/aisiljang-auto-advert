@@ -5,6 +5,12 @@ dist
 thumbs.db
 .env
 
+# Database files
+data/
+*.db
+*.db-shm
+*.db-wal
+
 .eslintcache
 
 # Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio, WebStorm and Rider

@@ -5,11 +5,38 @@ import {pathToFileURL} from 'node:url';
 
 export default /** @type import('electron-builder').Configuration */
 ({
+  appId: 'com.aisiljang.auto-advert',
+  productName: 'AisiljangAutoAdvert',
   directories: {
     output: 'dist',
     buildResources: 'buildResources',
   },
   generateUpdatesFilesForAllChannels: true,
+  // asar에서 제외할 파일들 (native 모듈 등)
+  asarUnpack: [
+    'node_modules/node-machine-id/**',
+    'node_modules/better-sqlite3/**',
+    'node_modules/@app/main/drizzle/**',
+  ],
+  publish: {
+    provider: 's3',
+    bucket: 'aisiljang-auto-advert', // S3 버킷명으로 변경하세요
+    region: 'ap-northeast-2', // Seoul region
+    acl: 'public-read',
+    path: '/releases',
+  },
+  mac: {
+    category: 'public.app-category.business',
+    target: ['dmg', 'zip'],
+  },
+  win: {
+    target: [
+      {
+        target: 'nsis',
+        arch: ['x64', 'arm64'],
+      },
+    ],
+  },
   linux: {
     target: ['deb'],
   },

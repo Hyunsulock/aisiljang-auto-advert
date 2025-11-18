@@ -18,6 +18,7 @@ export default /**
       formats: ['es'],
     },
     rollupOptions: {
+      external: ['node-machine-id'],
       output: {
         entryFileNames: '[name].js',
       },

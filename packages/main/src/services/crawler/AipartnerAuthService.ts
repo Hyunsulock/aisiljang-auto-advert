@@ -134,6 +134,7 @@ export class AipartnerAuthService {
   private async closeNoticePopup(page: Page): Promise<void> {
     try {
       // 짧은 대기 시간 (팝업이 완전히 렌더링될 때까지)
+      await page.waitForLoadState('networkidle');
       await delay(1000);
 
       // aria-hidden="false"인 팝업만 찾기 (보이는 팝업)

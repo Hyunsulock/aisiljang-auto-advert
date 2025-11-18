@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { ipcMain, app } from 'electron';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
@@ -7,10 +7,23 @@ import { mkdirSync } from 'fs';
 import { sql } from 'drizzle-orm';
 import { offers } from '../db/schema.js';
 
+// 데이터베이스 경로 헬퍼 함수
+function getDbPath() {
+  const DB_DIR = app.isPackaged
+    ? join(app.getPath('userData'), 'data')
+    : join(process.cwd(), 'data');
+  return {
+    dir: DB_DIR,
+    path: join(DB_DIR, 'app.db'),
+  };
+}
+
 /**
  * 데이터베이스 IPC 핸들러
  */
 export function registerDbHandlers() {
+  console.log('[DbHandlers] registerDbHandlers 호출됨');
+
   /**
    * 마이그레이션 실행
    */
@@ -18,8 +31,7 @@ export function registerDbHandlers() {
     try {
       console.log('🔄 데이터베이스 마이그레이션 시작...');
 
-      const DB_DIR = join(process.cwd(), 'data');
-      const DB_PATH = join(DB_DIR, 'app.db');
+      const { dir: DB_DIR, path: DB_PATH } = getDbPath();
 
       // data 디렉토리 생성 (없으면)
       try {
@@ -55,8 +67,7 @@ export function registerDbHandlers() {
     try {
       console.log('🗑️  모든 매물 삭제 시작...');
 
-      const DB_DIR = join(process.cwd(), 'data');
-      const DB_PATH = join(DB_DIR, 'app.db');
+      const { path: DB_PATH } = getDbPath();
 
       const sqlite = new Database(DB_PATH);
       const db = drizzle(sqlite);

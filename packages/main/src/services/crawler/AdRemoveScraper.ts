@@ -1,5 +1,10 @@
 import type { Page } from 'playwright';
 import type { AipartnerOffer } from '../../types/index.js';
+import { PropertyOwnerRepository } from '../../repositories/PropertyOwnerRepository.js';
+import { FileStorageService } from '../FileStorageService.js';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 
 /**
  * 광고 내리기 스크래퍼
@@ -7,6 +12,24 @@ import type { AipartnerOffer } from '../../types/index.js';
  * 이실장 사이트에서 특정 매물의 광고를 내리는 작업을 수행합니다.
  */
 export class AdRemoveScraper {
+  private propertyOwnerRepo: PropertyOwnerRepository;
+  private fileStorageService: FileStorageService;
+
+  constructor() {
+    this.propertyOwnerRepo = new PropertyOwnerRepository();
+    this.fileStorageService = new FileStorageService();
+  }
+
+  /**
+   * 임시 다운로드 디렉토리 생성
+   */
+  private getTempDownloadDir(): string {
+    const tempDir = path.join(os.tmpdir(), 'aisiljang-verification-files');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    return tempDir;
+  }
   /**
    * 지연 함수
    */
@@ -74,18 +97,24 @@ export class AdRemoveScraper {
   }
 
   /**
-   * 단일 매물의 광고 내리기
+   * 단일 매물의 광고 내리기 (재광고)
+   *
+   * 가격은 이실장 사이트에서 미리 수정된 상태이므로 "바로 재광고" 모드만 사용
    *
    * @param page Playwright 페이지 객체
    * @param offer 광고를 내릴 매물 정보
    * @returns 성공 여부
    */
-  async removeAd(page: Page, offer: AipartnerOffer): Promise<{ success: boolean; error?: string }> {
+  async removeAd(
+    page: Page,
+    offer: AipartnerOffer
+  ): Promise<{ success: boolean; error?: string }> {
     try {
       console.log(`🔽 광고 내리기 시작: ${offer.name} (numberN: ${offer.numberN})`);
 
       // 1. 광고 관리 페이지는 이미 로그인 시 이동했으므로 생략
       // 현재 페이지가 광고 리스트 페이지인지 확인
+      
       const currentUrl = page.url();
       if (!currentUrl.includes('/offerings/ad_list')) {
         console.log('📍 광고 관리 페이지로 이동 중...');
@@ -96,6 +125,18 @@ export class AdRemoveScraper {
       } else {
         console.log('✅ 이미 광고 관리 페이지에 있습니다');
       }
+
+      // 광고중 버튼 대기
+      await page.waitForSelector(
+        '#wrap > div > div > div > div.sectionWrap > div.statusWrap.ver3 > div.statusItem.statusIng.GTM_offerings_ad_list_ad_ing',
+        { timeout: 30000 }
+      );
+        await page.click(
+      '#wrap > div > div > div > div.sectionWrap > div.statusWrap.ver3 > div.statusItem.statusIng.GTM_offerings_ad_list_ad_ing'
+    );
+
+
+      await page.waitForLoadState('networkidle');
 
       await this.delay(2000);
 
@@ -126,27 +167,271 @@ export class AdRemoveScraper {
 
           if (cleanedNumber === offer.numberN) {
             console.log(`✅ 매물 발견: ${cleanedNumber}`);
+            console.log(`📋 "바로 재광고" 모드 사용 (가격은 이미 수정된 상태)`);
 
-            // 광고 내리기 버튼 찾기
-            const endButton = row.locator('td #naverEnd');
+            // 재광고 버튼 찾기 및 클릭
+            const reAdButton = row.locator('.management.GTM_offerings_ad_list_rocket_add.btn-re-ad-pop');
 
-            if (await endButton.count() === 0) {
-              throw new Error('광고 내리기 버튼(#naverEnd)을 찾을 수 없습니다');
+            if (await reAdButton.count() === 0) {
+              throw new Error('재광고 버튼을 찾을 수 없습니다');
             }
 
-            // 첫 번째 다이얼로그 핸들러: "네이버에서 노출종료 할까요?"
-            const dialogPromise1 = new Promise<boolean>((resolve) => {
-              const handler = async (dialog: any) => {
-                const message = dialog.message();
-                console.log(`📢 다이얼로그 1: ${message}`);
+            console.log('🔘 재광고 버튼 클릭 중...');
+            await reAdButton.click();
+            await this.delay(1000);
 
-                if (message === '네이버에서 노출종료 할까요?') {
-                  console.log('☑️  확인 선택함');
+            // 첫 번째 팝업 대기 (.wrap-pop-tooltip.pop-re-ad.active)
+            console.log('⏳ 재광고 선택 팝업 (1차) 대기 중...');
+            await page.waitForSelector('.wrap-pop-tooltip.pop-re-ad.active', { timeout: 5000 });
+            console.log('✅ 재광고 선택 팝업 (1차) 나타남');
+
+            await this.delay(500);
+
+            // 활성화된 팝업 안에서 "바로 재광고" 라디오 버튼 선택
+            console.log('🔘 "바로 재광고" 라디오 버튼 선택 중...');
+            const activePopup = page.locator('.wrap-pop-tooltip.pop-re-ad.active');
+            const directReAdRadio = activePopup.locator('.radio-check.naverReAd input[type="radio"]#reAd2');
+
+            if (await directReAdRadio.count() === 0) {
+              throw new Error('활성화된 팝업에서 바로 재광고 라디오 버튼을 찾을 수 없습니다');
+            }
+
+            await directReAdRadio.click();
+            await this.delay(1500);
+            console.log('✅ "바로 재광고" 라디오 버튼 선택 완료');
+
+            // 두 번째 팝업 대기 (.SYlayerPopupWrap.monitoring-regist-pop)
+            console.log('⏳ 재광고 안내 팝업 (2차) 대기 중...');
+            await page.waitForSelector('.SYlayerPopupWrap.monitoring-regist-pop', { timeout: 5000 });
+            console.log('✅ 재광고 안내 팝업 (2차) 나타남');
+
+            await this.delay(1000);
+
+            // 재광고 안내 팝업 안에서 노출종료 동의 체크박스 라벨 클릭
+            console.log('☑️  노출종료 동의 체크박스 라벨 클릭 중...');
+            const secondPopup = page.locator('.SYlayerPopupWrap.monitoring-regist-pop');
+            const checkboxLabel = secondPopup.locator('label[for="popAdEndCheck"]');
+
+            if (await checkboxLabel.count() === 0) {
+              throw new Error('재광고 안내 팝업에서 노출종료 동의 체크박스 라벨을 찾을 수 없습니다');
+            }
+
+            await checkboxLabel.click();
+            await this.delay(500);
+            console.log('✅ 노출종료 동의 체크박스 라벨 클릭 완료');
+
+            // alert 다이얼로그 핸들러 설정 (버튼 클릭 후 alert가 뜸)
+            const alertPromise = new Promise<boolean>((resolve) => {
+              const timeoutId = setTimeout(() => {
+                console.log('⚠️  alert 다이얼로그 대기 타임아웃');
+                page.off('dialog', handler);
+                resolve(false);
+              }, 10000);
+
+              const handler = async (dialog: any) => {
+                // 즉시 핸들러 제거 (중복 처리 방지)
+                page.off('dialog', handler);
+                clearTimeout(timeoutId);
+
+                const message = dialog.message();
+                console.log(`📢 Alert 다이얼로그: ${message}`);
+
+                try {
+                  if (message.includes('노출종료가 진행됩니다') || message.includes('복구는 불가능합니다')) {
+                    console.log('☑️  확인 버튼 클릭 중...');
+                    await dialog.accept();
+                    console.log('✅ Alert 확인 완료');
+                    resolve(true);
+                  } else {
+                    console.log('❌ 예상치 못한 다이얼로그');
+                    await dialog.dismiss();
+                    resolve(false);
+                  }
+                } catch (error) {
+                  console.log('⚠️  다이얼로그 처리 중 에러:', error);
+                  resolve(false);
+                }
+              };
+              page.on('dialog', handler);
+            });
+
+            // "바로 재광고" 버튼 클릭
+            console.log('🔘 "바로 재광고" 버튼 클릭 중...');
+            const directReAdButton = page.locator('button.register.startReAdOfferings.GTM_offerings_monitoring_my_ana_re_ad_ri[data-callback="verification"]');
+
+            if (await directReAdButton.count() === 0) {
+              throw new Error('바로 재광고 버튼을 찾을 수 없습니다');
+            }
+
+            await directReAdButton.click();
+            console.log('✅ "바로 재광고" 버튼 클릭 완료');
+
+            // alert 확인 대기
+            const alertConfirmed = await alertPromise;
+            if (!alertConfirmed) {
+              throw new Error('노출종료 확인 alert가 나타나지 않았거나 확인에 실패했습니다');
+            }
+
+            // verification 페이지로 바로 이동
+            console.log('⏳ verification 페이지 이동 대기 중...');
+            await page.waitForFunction(
+              () => location.href.includes('/offerings/verification/'),
+              { timeout: 60000, polling: 500 }
+            );
+            console.log('✅ verification 페이지 이동 완료');
+            await this.delay(2000);
+
+            // (신)홍보확인서인 경우 파일 업로드
+            if (offer.adMethod && offer.adMethod.includes('(신)홍보확인서')) {
+              console.log('📎 (신)홍보확인서 파일 업로드 시작...');
+
+              try {
+                // 1. PropertyOwnerRepository에서 파일 경로 조회
+                const propertyInfo = await this.propertyOwnerRepo.getPropertyByKey({
+                  name: offer.name,
+                  dong: offer.dong || undefined,
+                  ho: offer.ho || undefined,
+                });
+
+                if (!propertyInfo) {
+                  throw new Error(`매물 정보를 찾을 수 없습니다: ${offer.name}`);
+                }
+
+                const tempDir = this.getTempDownloadDir();
+                const uploadedFiles: string[] = [];
+
+                // 2. 분양계약서/사업자등록증 (document_file_path) - 필수
+                if (propertyInfo.document_file_path) {
+                  console.log('📄 분양계약서/사업자등록증 다운로드 중...');
+                  const localPath = path.join(tempDir, `document_${Date.now()}${path.extname(propertyInfo.document_file_path)}`);
+                  await this.fileStorageService.downloadFile(propertyInfo.document_file_path, localPath);
+
+                  // 라디오 버튼 선택 (fileReferenceFileType11)
+                  const documentRadio = page.locator('label[for="fileReferenceFileType11"]');
+                  if (await documentRadio.count() > 0) {
+                    await documentRadio.click();
+                    await this.delay(300);
+                  }
+
+                  // 파일 업로드
+                  const documentInput = page.locator('input#fileReferenceFileUrl1');
+                  await documentInput.setInputFiles(localPath);
+                  console.log('✅ 분양계약서/사업자등록증 업로드 완료');
+                  uploadedFiles.push(localPath);
+                }
+
+                // 3. 위임장 (power_of_attorney_file_path) - 선택
+                if (propertyInfo.power_of_attorney_file_path) {
+                  console.log('📄 위임장 다운로드 중...');
+                  const localPath = path.join(tempDir, `power_of_attorney_${Date.now()}${path.extname(propertyInfo.power_of_attorney_file_path)}`);
+                  await this.fileStorageService.downloadFile(propertyInfo.power_of_attorney_file_path, localPath);
+
+                  // 라디오 버튼 선택 (fileReferenceFileType21)
+                  const poaRadio = page.locator('label[for="fileReferenceFileType21"]');
+                  if (await poaRadio.count() > 0) {
+                    await poaRadio.click();
+                    await this.delay(300);
+                  }
+
+                  // 파일 업로드
+                  const poaInput = page.locator('input#fileReferenceFileUrl2');
+                  await poaInput.setInputFiles(localPath);
+                  console.log('✅ 위임장 업로드 완료');
+                  uploadedFiles.push(localPath);
+                }
+
+                // 4. 등기부등본 (register_file_path) - 선택
+                if (propertyInfo.register_file_path) {
+                  console.log('📄 등기부등본 다운로드 중...');
+                  const localPath = path.join(tempDir, `register_${Date.now()}${path.extname(propertyInfo.register_file_path)}`);
+                  await this.fileStorageService.downloadFile(propertyInfo.register_file_path, localPath);
+
+                  // 라디오 버튼 선택 (fileRegisterUrlImgType1)
+                  const registerRadio = page.locator('label[for="fileRegisterUrlImgType1"]');
+                  if (await registerRadio.count() > 0) {
+                    await registerRadio.click();
+                    await this.delay(300);
+                  }
+
+                  // 파일 업로드
+                  const registerInput = page.locator('input#fileRegisterUrl');
+                  await registerInput.setInputFiles(localPath);
+                  console.log('✅ 등기부등본 업로드 완료');
+                  uploadedFiles.push(localPath);
+                }
+
+                console.log('✅ (신)홍보확인서 파일 업로드 완료');
+
+                // 임시 파일 정리
+                for (const filePath of uploadedFiles) {
+                  try {
+                    fs.unlinkSync(filePath);
+                  } catch (err) {
+                    console.warn(`⚠️ 임시 파일 삭제 실패: ${filePath}`);
+                  }
+                }
+              } catch (error) {
+                console.error('❌ 파일 업로드 실패:', error);
+                throw error;
+              }
+            }
+
+            // 이후 공통 프로세스 (verification 페이지에서 진행)
+            // consentMobile2 체크박스 클릭
+            console.log('☑️  consentMobile2 체크박스 대기 중...');
+            await page.waitForSelector('label[for="consentMobile2"]', { timeout: 10000 });
+
+            const consentLabel = page.locator('label[for="consentMobile2"]');
+            if (await consentLabel.count() > 0) {
+              await consentLabel.scrollIntoViewIfNeeded();
+              await this.delay(500);
+              await consentLabel.click();
+              console.log('✅ consentMobile2 클릭 완료');
+            } else {
+              throw new Error('consentMobile2 버튼을 찾을 수 없습니다');
+            }
+
+            // payMsg 요소로 스크롤
+            const payMsg = page.locator('#payMsg');
+            if (await payMsg.count() > 0) {
+              await payMsg.scrollIntoViewIfNeeded();
+              await this.delay(1000);
+            }
+
+            // naverSendSave 버튼 클릭
+            console.log('💾 naverSendSave 버튼 대기 중...');
+            await page.waitForSelector('#naverSendSave', { timeout: 10000 });
+
+            const naverSaveBtn = page.locator('#naverSendSave');
+            await naverSaveBtn.scrollIntoViewIfNeeded();
+            await this.delay(500);
+
+            // 저장 확인 다이얼로그 핸들러 - adMethod에 따라 다른 메시지 확인
+            const expectedMessage = offer.adMethod && offer.adMethod.includes('(신)홍보확인서')
+              ? '홍보확인이 접수'
+              : '로켓전송이 완료';
+
+            const dialogPromise = new Promise<boolean>((resolve) => {
+              const timeoutId = setTimeout(() => {
+                console.log('⚠️  다이얼로그 대기 타임아웃');
+                page.off('dialog', handler);
+                resolve(false);
+              }, 10000);
+
+              const handler = async (dialog: any) => {
+                clearTimeout(timeoutId);
+                const message = dialog.message();
+                console.log(`📢 다이얼로그: ${message}`);
+
+                if (message.includes(expectedMessage)) {
+                  console.log('☑️  확인 버튼 클릭 중...');
+                  await this.delay(500);
                   await dialog.accept();
+                  console.log('✅ 확인 완료');
                   page.off('dialog', handler);
                   resolve(true);
                 } else {
-                  console.log('❌ 취소 선택함');
+                  console.log('❌ 다이얼로그 취소');
                   await dialog.dismiss();
                   page.off('dialog', handler);
                   resolve(false);
@@ -155,41 +440,48 @@ export class AdRemoveScraper {
               page.on('dialog', handler);
             });
 
-            // 광고 내리기 버튼 클릭
-            await endButton.click();
-            const confirmed1 = await dialogPromise1;
+            await naverSaveBtn.click();
+            console.log('🔘 naverSendSave 버튼 클릭 완료, 다이얼로그 대기 중...');
 
-            if (!confirmed1) {
-              throw new Error('첫 번째 확인 다이얼로그가 거부되었습니다');
+            const saved = await dialogPromise;
+            if (!saved) {
+              throw new Error('저장 확인 다이얼로그가 나타나지 않았거나 거부되었습니다');
             }
 
-            // 두 번째 다이얼로그 핸들러: "네이버에서 노출종료 했어요."
-            const dialogPromise2 = new Promise<boolean>((resolve) => {
-              const handler = async (dialog: any) => {
-                const message = dialog.message();
-                console.log(`📢 다이얼로그 2: ${message}`);
+            // verify 페이지 대기
+            console.log('📄 verify 페이지 이동 대기 중...');
+            await page.waitForFunction(
+              () => location.href.includes('/offerings/verify/'),
+              { timeout: 60000, polling: 500 }
+            );
+            console.log('🟢 verify 페이지로 이동 완료');
 
-                if (message === '네이버에서 노출종료 했어요.') {
-                  console.log('☑️  확인 선택함');
-                  await dialog.accept();
-                  page.off('dialog', handler);
-                  resolve(true);
-                } else {
-                  await dialog.dismiss();
-                  page.off('dialog', handler);
-                  resolve(false);
-                }
-              };
-              page.on('dialog', handler);
-            });
+            await this.delay(2000);
 
-            const confirmed2 = await dialogPromise2;
+            // 취소 버튼 클릭해서 ad_list로 돌아가기
+            await page.waitForSelector('#btnCancel');
+            const cancelBtn = page.locator('#btnCancel');
+            await cancelBtn.scrollIntoViewIfNeeded();
+            await this.delay(2000);
 
-            if (!confirmed2) {
-              throw new Error('두 번째 확인 다이얼로그가 거부되었습니다');
+            await cancelBtn.click();
+
+            // ad_list 페이지 대기
+            await page.waitForFunction(
+              () => location.href.includes('/offerings/ad_list'),
+              { timeout: 60000, polling: 500 }
+            );
+
+            await this.delay(2000);
+
+            const currentUrl = page.url();
+            if (currentUrl.startsWith('https://www.aipartner.com/offerings/ad_list')) {
+              console.log('✅ ad_list 페이지로 이동 완료');
+            } else {
+              throw new Error('❌ ad_list 페이지로 이동 실패');
             }
 
-            console.log(`✅ 광고 내리기 완료: ${offer.name}`);
+            console.log(`✅ 재광고 완료: ${offer.name}`);
             isFound = true;
             break;
           }
@@ -242,7 +534,7 @@ export class AdRemoveScraper {
   }
 
   /**
-   * 여러 매물의 광고를 순차적으로 내리기
+   * 여러 매물의 광고를 순차적으로 내리고 재등록하기
    *
    * @param page Playwright 페이지 객체
    * @param offers 광고를 내릴 매물 목록
@@ -256,7 +548,7 @@ export class AdRemoveScraper {
   ): Promise<Array<{ offer: AipartnerOffer; success: boolean; error?: string }>> {
     const results: Array<{ offer: AipartnerOffer; success: boolean; error?: string }> = [];
 
-    console.log(`📦 총 ${offers.length}개 매물의 광고를 내립니다`);
+    console.log(`📦 총 ${offers.length}개 매물의 재광고를 진행합니다`);
 
     // 배치 시작 전 팝업 닫기 (한 번만)
     await this.closeNoticePopup(page);
@@ -286,7 +578,7 @@ export class AdRemoveScraper {
     const successCount = results.filter(r => r.success).length;
     const failCount = results.filter(r => !r.success).length;
 
-    console.log(`\n📊 광고 내리기 완료: 성공 ${successCount}건, 실패 ${failCount}건`);
+    console.log(`\n📊 재광고 완료: 성공 ${successCount}건, 실패 ${failCount}건`);
 
     return results;
   }

@@ -40,20 +40,24 @@ export class CrawlerService {
         headless: this.options.headless ?? false,
       });
 
-      // 2. 네이버 토큰 가져오기 (순위 정보 필요한 경우만)
-      let bearerToken: string | null = null;
+      // 2. 네이버 토큰 및 쿠키 가져오기 (순위 정보 필요한 경우만)
+      let naverSession: { bearerToken: string; cookieJar: any } | null = null;
 
       if (this.options.includeRanking !== false) {
         this.reportProgress({
           phase: 'auth',
           current: 10,
           total: 100,
-          message: '네이버 Bearer 토큰 가져오는 중...',
+          message: '네이버 Bearer 토큰 및 쿠키 가져오는 중...',
         });
 
-        const naverPage = await this.browserService.createPage();
-        const naverAuth = new NaverAuthService();
-        bearerToken = await naverAuth.getBearerToken(naverPage);
+        const naverAuth = new NaverAuthService({
+          complexId: process.env.NAVER_COMPLEX_ID,
+          proxyUrl: process.env.NAVER_PROXY_URL,
+          proxyUsername: process.env.NAVER_PROXY_USERNAME,
+          proxyPassword: process.env.NAVER_PROXY_PASSWORD,
+        });
+        naverSession = await naverAuth.getBearerTokenAndCookiesWithBrowser(browser);
       } else {
         console.log('⏭️  네이버 순위 정보 수집 건너뛰기');
       }
@@ -91,9 +95,10 @@ export class CrawlerService {
       const offers = await scraper.scrapeAll(session.cookies, session.token);
 
       let result: OfferWithRank[];
+      let rankingAnalysisResults: Map<string, any> = new Map();
 
       // 5. 네이버 순위 정보 수집 (선택적)
-      if (this.options.includeRanking !== false && bearerToken) {
+      if (this.options.includeRanking !== false && naverSession) {
         this.reportProgress({
           phase: 'ranking',
           current: 70,
@@ -101,11 +106,41 @@ export class CrawlerService {
           message: '네이버 순위 정보 수집 중...',
         });
 
-        const rankScraper = new NaverRankScraper(bearerToken);
+        const rankScraper = new NaverRankScraper(
+          naverSession.bearerToken,
+          naverSession.cookieJar,
+          {
+            proxyUrl: process.env.NAVER_PROXY_URL,
+            proxyUsername: process.env.NAVER_PROXY_USERNAME,
+            proxyPassword: process.env.NAVER_PROXY_PASSWORD,
+          }
+        );
         const offerNumbers = offers.map((o) => o.numberN);
         const rankData = await rankScraper.getRanksForOffers(offerNumbers);
 
-        // 6. 데이터 병합
+        // 6. 경쟁 광고 분석 (한 번에)
+        this.reportProgress({
+          phase: 'ranking',
+          current: 80,
+          total: 100,
+          message: '경쟁 광고 분석 중...',
+        });
+
+        for (const offer of offers) {
+          try {
+            const analysis = await rankScraper.analyzeRanking(
+              offer.numberN,
+              offer.dong || offer.name,
+              offer.price
+            );
+            rankingAnalysisResults.set(offer.numberN, analysis);
+            console.log(`✅ ${offer.name} (${offer.numberN}) 경쟁 광고 분석 완료`);
+          } catch (error) {
+            console.error(`❌ ${offer.name} (${offer.numberN}) 경쟁 광고 분석 실패:`, error);
+          }
+        }
+
+        // 7. 데이터 병합
         this.reportProgress({
           phase: 'completed',
           current: 90,
@@ -122,6 +157,7 @@ export class CrawlerService {
             isShared: rank?.isShared ?? null,
             sharedCount: rank?.sharedCount ?? null,
             total: rank?.total ?? null,
+            rankingAnalysis: rankingAnalysisResults.get(offer.numberN) || null,
           };
         });
       } else {
@@ -133,6 +169,7 @@ export class CrawlerService {
           isShared: null,
           sharedCount: null,
           total: null,
+          rankingAnalysis: null,
         }));
       }
 

@@ -22,6 +22,9 @@ class WindowManager implements AppModule {
   }
 
   async createWindow(): Promise<BrowserWindow> {
+    console.log('🔧 [WindowManager] Creating window with preload:', this.#preload.path);
+    console.log('🔧 [WindowManager] Renderer:', this.#renderer);
+
     const browserWindow = new BrowserWindow({
       show: false, // Use the 'ready-to-show' event to show the instantiated BrowserWindow.
       webPreferences: {

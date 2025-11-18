@@ -3,7 +3,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { AlertCircle, Building2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-//import { agency } from '@app/preload';
+import { agency } from '@app/preload';
 
 interface AgencySetupProps {
   onComplete: () => void;
@@ -33,6 +33,13 @@ export function AgencySetup({ onComplete }: AgencySetupProps) {
         return;
       }
 
+      // 세션 정보 확인 (디버깅)
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log('🔍 Current user:', user);
+      console.log('🔍 Current session:', session);
+      console.log('🔍 JWT role:', session?.user?.role);
+      console.log('🔍 Access token:', session?.access_token?.substring(0, 50) + '...');
+
       // 이미 프로필이 있는지 확인
       const { data: existingProfile } = await supabase
         .from('user_profiles')
@@ -49,7 +56,7 @@ export function AgencySetup({ onComplete }: AgencySetupProps) {
       const subscriptionEndDate = new Date();
       subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + 1); // 1개월 체험
 
-      const { data: agency, error: agencyError } = await supabase
+      const { data: newAgency, error: agencyError } = await supabase
         .from('agencies')
         .insert({
           name: agencyName.trim(),
@@ -65,7 +72,7 @@ export function AgencySetup({ onComplete }: AgencySetupProps) {
         return;
       }
 
-      // 현재 기기의 Machine ID 가져오기
+      // 현재 기기의 Machine ID 가져오기 (preload의 agency API 사용)
       const machineIdResult = await agency.getCurrentMachineId();
       const currentMachineId = machineIdResult.machineId;
 
@@ -74,7 +81,7 @@ export function AgencySetup({ onComplete }: AgencySetupProps) {
         .from('user_profiles')
         .insert({
           id: user.id,
-          agency_id: agency.id,
+          agency_id: newAgency.id,
           machine_id: currentMachineId,
           role: 'admin',
         })
@@ -84,7 +91,7 @@ export function AgencySetup({ onComplete }: AgencySetupProps) {
       if (profileError) {
         console.error('Profile creation error:', profileError);
         // Profile 생성 실패 시 Agency도 삭제
-        await supabase.from('agencies').delete().eq('id', agency.id);
+        await supabase.from('agencies').delete().eq('id', newAgency.id);
         setError('프로필 생성에 실패했습니다: ' + profileError.message);
         return;
       }

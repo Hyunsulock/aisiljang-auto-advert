@@ -14,8 +14,8 @@ import {BatchModule} from './modules/BatchModule.js';
 import {AdTestModule} from './modules/AdTestModule.js';
 import {PropertyOwnerModule} from './modules/PropertyOwnerModule.js';
 import {AgencyModule} from './modules/AgencyModule.js';
-import {CrawlerModule} from './modules/CrawlerModule.js';
 import {SchedulerModule} from './modules/SchedulerModule.js';
+import {IpcModule} from './modules/IpcModule.js';
 
 
 export async function initApp(initConfig: AppInitConfig) {
@@ -31,8 +31,8 @@ export async function initApp(initConfig: AppInitConfig) {
     .init(new AdTestModule())
     .init(new PropertyOwnerModule())
     .init(new AgencyModule())
-    .init(new CrawlerModule())
     .init(new SchedulerModule())
+    .init(new IpcModule()) // IPC 핸들러 등록
 
     // Install DevTools extension if needed
     // .init(chromeDevToolsExtension({extension: 'VUEJS3_DEVTOOLS'}))

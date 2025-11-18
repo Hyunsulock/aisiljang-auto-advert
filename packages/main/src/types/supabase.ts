@@ -41,6 +41,87 @@ export type Database = {
         }
         Relationships: []
       }
+      agency_join_requests: {
+        Row: {
+          agency_name: string
+          created_at: string | null
+          id: string
+          status: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          agency_name: string
+          created_at?: string | null
+          id?: string
+          status?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          agency_name?: string
+          created_at?: string | null
+          id?: string
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      app_config: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          key: string
+          updated_at: string | null
+          value: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          key: string
+          updated_at?: string | null
+          value: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          key?: string
+          updated_at?: string | null
+          value?: string
+        }
+        Relationships: []
+      }
+      machine_id_requests: {
+        Row: {
+          created_at: string | null
+          id: string
+          machine_id: string
+          status: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          machine_id: string
+          status?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          machine_id?: string
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       properties: {
         Row: {
           agency_id: string | null
@@ -76,7 +157,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "agencies"
             referencedColumns: ["id"]
-          }
+          },
         ]
       }
       property_verification_info: {
@@ -167,60 +248,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      agency_join_requests: {
-        Row: {
-          agency_name: string
-          created_at: string | null
-          id: string
-          status: string | null
-          updated_at: string | null
-          user_id: string
-        }
-        Insert: {
-          agency_name: string
-          created_at?: string | null
-          id?: string
-          status?: string | null
-          updated_at?: string | null
-          user_id: string
-        }
-        Update: {
-          agency_name?: string
-          created_at?: string | null
-          id?: string
-          status?: string | null
-          updated_at?: string | null
-          user_id?: string
-        }
-        Relationships: []
-      }
-      machine_id_requests: {
-        Row: {
-          created_at: string | null
-          id: string
-          machine_id: string
-          status: string | null
-          updated_at: string | null
-          user_id: string
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          machine_id: string
-          status?: string | null
-          updated_at?: string | null
-          user_id: string
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          machine_id?: string
-          status?: string | null
-          updated_at?: string | null
-          user_id?: string
-        }
-        Relationships: []
       }
     }
     Views: {
@@ -381,53 +408,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-
-export type PropertyVerificationInfoInsert = Database['public']['Tables']['property_verification_info']['Insert']
-export type PropertyVerificationInfoUpdate = Database['public']['Tables']['property_verification_info']['Update']
-export type PropertyVerificationInfoRow = Database['public']['Tables']['property_verification_info']['Row']
-
-// Property와 Verification 정보를 합친 타입 (RPC get_properties_by_keys 결과)
-export interface PropertyWithVerification {
-  id: string;
-  property_name: string;
-  dong: string | null;
-  ho: string | null;
-  property_created_at: string;
-  property_updated_at: string;
-  verification_id: string | null;
-  owner_type: string | null;
-  document_file_path: string | null;
-  register_file_path: string | null;
-  power_of_attorney_file_path: string | null;
-  register_unique_no: string | null;
-  verification_created_at: string | null;
-  verification_updated_at: string | null;
-}
-
-export interface Property {
-  id: string;
-  propertyName: string;
-  dong: string | null;
-  ho: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface PropertyInsert {
-  property_name: string;
-  dong?: string | null;
-  ho?: string | null;
-  agency_id?: string | null;
-}
-
-export interface PropertyVerificationInfo {
-  id: string;
-  propertyId: string;
-  ownerType: string;
-  documentFilePath: string;
-  registerFilePath: string | null;
-  powerOfAttorneyFilePath: string | null;
-  registerUniqueNo: string | null;
-  createdAt: string;
-  updatedAt: string;
-}

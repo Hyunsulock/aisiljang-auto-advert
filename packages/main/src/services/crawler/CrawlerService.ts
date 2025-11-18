@@ -51,12 +51,7 @@ export class CrawlerService {
           message: '네이버 Bearer 토큰 및 쿠키 가져오는 중...',
         });
 
-        const naverAuth = new NaverAuthService({
-          complexId: process.env.NAVER_COMPLEX_ID,
-          proxyUrl: process.env.NAVER_PROXY_URL,
-          proxyUsername: process.env.NAVER_PROXY_USERNAME,
-          proxyPassword: process.env.NAVER_PROXY_PASSWORD,
-        });
+        const naverAuth = new NaverAuthService();
         naverSession = await naverAuth.getBearerTokenAndCookiesWithBrowser(browser);
       } else {
         console.log('⏭️  네이버 순위 정보 수집 건너뛰기');
@@ -108,12 +103,7 @@ export class CrawlerService {
 
         const rankScraper = new NaverRankScraper(
           naverSession.bearerToken,
-          naverSession.cookieJar,
-          {
-            proxyUrl: process.env.NAVER_PROXY_URL,
-            proxyUsername: process.env.NAVER_PROXY_USERNAME,
-            proxyPassword: process.env.NAVER_PROXY_PASSWORD,
-          }
+          naverSession.cookieJar
         );
         const offerNumbers = offers.map((o) => o.numberN);
         const rankData = await rankScraper.getRanksForOffers(offerNumbers);

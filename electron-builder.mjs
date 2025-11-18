@@ -19,11 +19,10 @@ export default /** @type import('electron-builder').Configuration */
     'node_modules/@app/main/drizzle/**',
   ],
   publish: {
-    provider: 's3',
-    bucket: 'aisiljang-auto-advert', // S3 버킷명으로 변경하세요
-    region: 'ap-northeast-2', // Seoul region
-    acl: 'public-read',
-    path: '/releases',
+    provider: 'github',
+    owner: 'Hyunsulock',
+    repo: 'aisiljang-auto-advert',
+    releaseType: 'release',
   },
   mac: {
     category: 'public.app-category.business',

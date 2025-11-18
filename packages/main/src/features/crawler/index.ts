@@ -1,63 +1,54 @@
-import { ipcMain } from 'electron';
-import { CrawlerService } from '../services/crawler/CrawlerService.js';
-import { OfferRepository } from '../repositories/OfferRepository.js';
-import { CompetingAdsRepository } from '../repositories/CompetingAdsRepository.js';
-import { NaverAuthService } from '../services/crawler/NaverAuthService.js';
-import { NaverRankScraper } from '../services/crawler/NaverRankScraper.js';
-import { BrowserService } from '../services/browser/BrowserService.js';
-import type { OfferWithRank, CrawlerProgress } from '../types/index.js';
-import type { BrowserWindow } from 'electron';
+/**
+ * Crawler 기능
+ */
 
-// 윈도우 참조를 저장할 변수
-let _mainWindow: BrowserWindow | null = null;
-// 핸들러 등록 여부 확인
-let _handlersRegistered = false;
+import { ipcMain, BrowserWindow } from 'electron';
+import { CrawlerService } from '../../services/crawler/CrawlerService.js';
+import { OfferRepository } from '../../repositories/OfferRepository.js';
+import { CompetingAdsRepository } from '../../repositories/CompetingAdsRepository.js';
+import { NaverAuthService } from '../../services/crawler/NaverAuthService.js';
+import { NaverRankScraper } from '../../services/crawler/NaverRankScraper.js';
+import { BrowserService } from '../../services/browser/BrowserService.js';
+import type { CrawlerProgress } from '../../types/index.js';
+import { CRAWLER_CHANNELS } from './crawler.channels.js';
 
+// 모듈 레벨 상태
+let mainWindow: BrowserWindow | null = null;
+let crawler: CrawlerService | null = null;
 const offerRepo = new OfferRepository();
 const competingAdsRepo = new CompetingAdsRepository();
-let crawler: CrawlerService | null = null;
 
 /**
- * 크롤러 IPC 핸들러
+ * 윈도우 참조 설정
  */
-export function registerCrawlerHandlers(mainWindow?: BrowserWindow): void {
-  console.log('[CrawlerHandlers] registerCrawlerHandlers 호출됨', {
-    hasWindow: !!mainWindow,
-    alreadyRegistered: _handlersRegistered,
-  });
+export function setMainWindow(window: BrowserWindow) {
+  mainWindow = window;
+  console.log('[Crawler] Main window reference updated');
+}
 
-  // 윈도우가 제공되면 저장
-  if (mainWindow) {
-    _mainWindow = mainWindow;
-    console.log('[CrawlerHandlers] 윈도우 참조 업데이트됨');
+/**
+ * Crawler IPC 핸들러 등록
+ */
+export function registerCrawlerHandlers(window?: BrowserWindow) {
+  if (window) {
+    setMainWindow(window);
   }
-
-  // 이미 등록되었으면 윈도우 참조만 업데이트하고 리턴
-  if (_handlersRegistered) {
-    console.log('[CrawlerHandlers] 핸들러 이미 등록됨, 리턴');
-    return;
-  }
-  _handlersRegistered = true;
-
-  console.log('[CrawlerHandlers] 핸들러 등록 시작...');
 
   /**
    * 크롤링 시작
    */
-  ipcMain.handle('crawler:fetch-offers', async (_event, options?: { includeRanking?: boolean }) => {
+  ipcMain.handle(CRAWLER_CHANNELS.FETCH_OFFERS, async (_event, options?: { includeRanking?: boolean }) => {
     try {
-      // 크롤링 시작 전 기존 매물 데이터 삭제
       console.log('🗑️  기존 매물 데이터 삭제 중...');
       await offerRepo.deleteAll();
       console.log('✅ 기존 매물 데이터 삭제 완료');
 
-      // 진행 상황을 renderer로 전송
       crawler = new CrawlerService({
         headless: false,
         includeRanking: options?.includeRanking ?? false,
         onProgress: (progress: CrawlerProgress) => {
-          if (_mainWindow && !_mainWindow.isDestroyed()) {
-            _mainWindow.webContents.send('crawler:progress', progress);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(CRAWLER_CHANNELS.PROGRESS, progress);
           }
         },
       });
@@ -65,7 +56,6 @@ export function registerCrawlerHandlers(mainWindow?: BrowserWindow): void {
       const offers = await crawler.fetchOffers();
       console.log('✅ 크롤링 완료:', offers.length, '건');
 
-      // DB에 저장
       console.log('💾 DB 저장 시작...');
       await offerRepo.upsertMany(offers);
       console.log('✅ DB 저장 완료');
@@ -105,20 +95,14 @@ export function registerCrawlerHandlers(mainWindow?: BrowserWindow): void {
       };
     }
   });
-  console.log('[CrawlerHandlers] ✅ crawler:fetch-offers 핸들러 등록됨');
-
-  // offers:get-all 핸들러는 DbModule로 이동됨
 
   /**
-   * DB에서 광고중인 매물만 조회
+   * 광고중인 매물 조회
    */
-  ipcMain.handle('offers:get-advertising', async () => {
+  ipcMain.handle(CRAWLER_CHANNELS.GET_ADVERTISING, async () => {
     try {
       const offers = await offerRepo.findAdvertising();
-      return {
-        success: true,
-        data: offers,
-      };
+      return { success: true, data: offers };
     } catch (error) {
       return {
         success: false,
@@ -130,13 +114,10 @@ export function registerCrawlerHandlers(mainWindow?: BrowserWindow): void {
   /**
    * 매물 개수 조회
    */
-  ipcMain.handle('offers:count', async () => {
+  ipcMain.handle(CRAWLER_CHANNELS.COUNT, async () => {
     try {
       const count = await offerRepo.count();
-      return {
-        success: true,
-        data: count,
-      };
+      return { success: true, data: count };
     } catch (error) {
       return {
         success: false,
@@ -148,15 +129,13 @@ export function registerCrawlerHandlers(mainWindow?: BrowserWindow): void {
   /**
    * 크롤링 취소
    */
-  ipcMain.handle('crawler:cancel', async () => {
+  ipcMain.handle(CRAWLER_CHANNELS.CANCEL, async () => {
     try {
       if (crawler) {
         await crawler.close();
         crawler = null;
       }
-      return {
-        success: true,
-      };
+      return { success: true };
     } catch (error) {
       return {
         success: false,
@@ -168,41 +147,22 @@ export function registerCrawlerHandlers(mainWindow?: BrowserWindow): void {
   /**
    * 단일 네이버 매물 ID의 랭킹 가져오기
    */
-  ipcMain.handle('crawler:fetch-single-rank', async (_event, offerId: string) => {
+  ipcMain.handle(CRAWLER_CHANNELS.FETCH_SINGLE_RANK, async (_event, offerId: string) => {
     let browserService: BrowserService | null = null;
 
     try {
       console.log(`📊 네이버 매물 ${offerId} 랭킹 조회 시작...`);
 
-      // 1. 브라우저 실행
       browserService = new BrowserService();
       const browser = await browserService.launch({ headless: false });
 
-      // 2. 네이버 토큰 및 쿠키 가져오기
-      const naverAuth = new NaverAuthService({
-        complexId: process.env.NAVER_COMPLEX_ID,
-        proxyUrl: process.env.NAVER_PROXY_URL,
-        proxyUsername: process.env.NAVER_PROXY_USERNAME,
-        proxyPassword: process.env.NAVER_PROXY_PASSWORD,
-      });
+      const naverAuth = new NaverAuthService();
 
       const naverSession = await naverAuth.getBearerTokenAndCookiesWithBrowser(browser);
 
-      // 3. 랭킹 스크래퍼 초기화
-      const rankScraper = new NaverRankScraper(
-        naverSession.bearerToken,
-        naverSession.cookieJar,
-        {
-          proxyUrl: process.env.NAVER_PROXY_URL,
-          proxyUsername: process.env.NAVER_PROXY_USERNAME,
-          proxyPassword: process.env.NAVER_PROXY_PASSWORD,
-        }
-      );
+      const rankScraper = new NaverRankScraper(naverSession.bearerToken, naverSession.cookieJar);
 
-      // 4. 랭킹 정보 가져오기
       const rankData = await rankScraper.getRanksForOffers([offerId]);
-
-      // 5. 브라우저 종료
       await browserService.close();
 
       const result = rankData[offerId];
@@ -237,41 +197,23 @@ export function registerCrawlerHandlers(mainWindow?: BrowserWindow): void {
   /**
    * 랭킹 분석: 내 광고와 경쟁 광고 비교
    */
-  ipcMain.handle('crawler:analyze-ranking', async (_event, { offerId, buildingName, price }: { offerId: string; buildingName?: string; price?: string }) => {
+  ipcMain.handle(CRAWLER_CHANNELS.ANALYZE_RANKING, async (_event, { offerId, buildingName, price }: { offerId: string; buildingName?: string; price?: string }) => {
     let browserService: BrowserService | null = null;
 
     try {
       console.log(`🔍 랭킹 분석 시작: ${offerId}`);
 
-      // 1. 브라우저 실행
       browserService = new BrowserService();
       const browser = await browserService.launch({ headless: false });
 
-      // 2. 네이버 토큰 및 쿠키 가져오기
-      const naverAuth = new NaverAuthService({
-        complexId: process.env.NAVER_COMPLEX_ID,
-        proxyUrl: process.env.NAVER_PROXY_URL,
-        proxyUsername: process.env.NAVER_PROXY_USERNAME,
-        proxyPassword: process.env.NAVER_PROXY_PASSWORD,
-      });
+      const naverAuth = new NaverAuthService();
 
       const naverSession = await naverAuth.getBearerTokenAndCookiesWithBrowser(browser);
 
-      // 3. 랭킹 스크래퍼 초기화
-      const rankScraper = new NaverRankScraper(
-        naverSession.bearerToken,
-        naverSession.cookieJar,
-        {
-          proxyUrl: process.env.NAVER_PROXY_URL,
-          proxyUsername: process.env.NAVER_PROXY_USERNAME,
-          proxyPassword: process.env.NAVER_PROXY_PASSWORD,
-        }
-      );
+      const rankScraper = new NaverRankScraper(naverSession.bearerToken, naverSession.cookieJar);
 
-      // 4. 랭킹 분석
       const analysis = await rankScraper.analyzeRanking(offerId, buildingName, price);
 
-      // 5. 브라우저 종료
       await browserService.close();
 
       console.log(`✅ 랭킹 분석 완료`);
@@ -293,4 +235,6 @@ export function registerCrawlerHandlers(mainWindow?: BrowserWindow): void {
       };
     }
   });
+
+  console.log('[Crawler] IPC handlers registered');
 }

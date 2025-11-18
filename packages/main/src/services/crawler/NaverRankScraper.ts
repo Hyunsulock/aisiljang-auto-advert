@@ -3,12 +3,15 @@ import { CookieJar } from 'tough-cookie';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import type { NaverRankInfo, NaverArticle, RankingAnalysis, CompetingAd } from '../../types/index.js';
 import { randomDelay } from '../../utils/delay.js';
+import { AppConfigService } from '../AppConfigService.js';
 
 export interface NaverRankScraperOptions {
-  proxyUrl?: string;
   proxyUsername?: string;
   proxyPassword?: string;
 }
+
+// 하드코딩된 상수
+const NAVER_PROXY_URL = 'http://kr.decodo.com:10000';
 
 /**
  * 네이버 순위 정보 수집
@@ -18,6 +21,9 @@ export class NaverRankScraper {
   private cookieJar: CookieJar;
   private bearerToken: string;
   private articlesCache: Record<string, any[]> = {}; // 캐시: articleNo -> articles[]
+  private proxyUsername: string | null = null;
+  private proxyPassword: string | null = null;
+  private initialized: boolean = false;
 
   constructor(
     bearerToken: string,
@@ -27,15 +33,51 @@ export class NaverRankScraper {
     this.bearerToken = bearerToken;
     this.cookieJar = cookieJar;
 
-    // 프록시 에이전트 설정
-    let httpsAgent;
-    if (options.proxyUrl) {
-      const proxyUrl = options.proxyUsername
-        ? `http://${options.proxyUsername}:${options.proxyPassword}@${options.proxyUrl.replace('http://', '')}`
-        : options.proxyUrl;
-      httpsAgent = new HttpsProxyAgent(proxyUrl);
+    // 옵션으로 전달받은 경우 사용 (주로 테스트용)
+    this.proxyUsername = options.proxyUsername || null;
+    this.proxyPassword = options.proxyPassword || null;
+
+    // 프록시 에이전트 설정은 init()에서 수행
+    this.api = axios.create({
+      baseURL: 'https://new.land.naver.com/api/',
+      headers: {
+        authorization: `Bearer ${this.bearerToken}`,
+        Host: 'new.land.naver.com',
+        'sec-ch-ua': '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+      },
+    });
+  }
+
+  /**
+   * Supabase에서 proxy 인증정보 가져오고 httpsAgent 설정
+   */
+  private async init(): Promise<void> {
+    // 이미 초기화되었으면 스킵
+    if (this.initialized) {
+      return;
     }
 
+    // 인증정보가 없으면 Supabase에서 로드
+    if (!this.proxyUsername || !this.proxyPassword) {
+      const credentials = await AppConfigService.getNaverProxyCredentials();
+
+      if (!credentials.username || !credentials.password) {
+        throw new Error('Naver proxy credentials not found in app_config');
+      }
+
+      this.proxyUsername = credentials.username;
+      this.proxyPassword = credentials.password;
+
+      console.log('[NaverRankScraper] Proxy credentials loaded from Supabase');
+    }
+
+    // HttpsProxyAgent 설정
+    const proxyUrl = `http://${this.proxyUsername}:${this.proxyPassword}@${NAVER_PROXY_URL.replace('http://', '')}`;
+    const httpsAgent = new HttpsProxyAgent(proxyUrl);
+
+    // API 인스턴스 재생성 (프록시 포함)
     this.api = axios.create({
       baseURL: 'https://new.land.naver.com/api/',
       headers: {
@@ -83,12 +125,16 @@ export class NaverRankScraper {
       }
       return res;
     });
+
+    this.initialized = true;
+    console.log('[NaverRankScraper] Initialized successfully');
   }
 
   /**
    * 네이버 API에서 매물 정보 가져오기 (재시도 포함)
    */
   async fetchWithRetry(url: string, params: any, maxRetries = 10): Promise<any> {
+    await this.init();
  const userAgents = [
     "Mozilla/5.0 (iPad; CPU OS 6_0 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/6.0 Mobile/10A5355d Safari/8536.25",
     "Mozilla/5.0 (Windows; U; MSIE 9.0; Windows NT 9.0; en-US)",
@@ -187,6 +233,7 @@ export class NaverRankScraper {
    * 여러 매물의 네이버 순위 정보 수집 (배치 처리)
    */
   async getRanksForOffers(offerNumbers: string[]): Promise<Record<string, NaverRankInfo>> {
+    await this.init();
     console.log(`📊 네이버 순위 정보 수집 시작 (${offerNumbers.length}건)...`);
 
     const naverData: Record<string, any> = {};
@@ -321,6 +368,7 @@ export class NaverRankScraper {
     _myBuildingName?: string, // API가 같은 동호수만 반환하므로 사용 안함
     myPrice?: string
   ): Promise<RankingAnalysis> {
+    await this.init();
     console.log(`🔍 랭킹 분석 시작: ${myArticleNo}`);
 
     // 1. 캐시 확인 또는 전체 매물 리스트 가져오기

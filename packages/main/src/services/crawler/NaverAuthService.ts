@@ -1,6 +1,7 @@
 import type { Page, Browser } from 'playwright';
 import { CookieJar } from 'tough-cookie';
 import { delay } from '../../utils/delay.js';
+import { AppConfigService } from '../AppConfigService.js';
 
 export interface NaverSession {
   bearerToken: string;
@@ -8,25 +9,46 @@ export interface NaverSession {
 }
 
 export interface NaverAuthOptions {
-  complexId?: string;
-  proxyUrl?: string;
   proxyUsername?: string;
   proxyPassword?: string;
 }
+
+// 하드코딩된 상수
+const NAVER_COMPLEX_ID = '346';
+const NAVER_PROXY_URL = 'http://kr.decodo.com:10000';
 
 /**
  * 네이버 부동산 Bearer 토큰 및 쿠키 가져오기
  */
 export class NaverAuthService {
-  private options: NaverAuthOptions;
+  private proxyUsername: string | null = null;
+  private proxyPassword: string | null = null;
 
   constructor(options: NaverAuthOptions = {}) {
-    this.options = {
-      complexId: options.complexId || process.env.NAVER_COMPLEX_ID || '364',
-      proxyUrl: options.proxyUrl || process.env.NAVER_PROXY_URL,
-      proxyUsername: options.proxyUsername || process.env.NAVER_PROXY_USERNAME,
-      proxyPassword: options.proxyPassword || process.env.NAVER_PROXY_PASSWORD,
-    };
+    // 옵션으로 전달받은 경우 사용 (주로 테스트용)
+    this.proxyUsername = options.proxyUsername || null;
+    this.proxyPassword = options.proxyPassword || null;
+  }
+
+  /**
+   * Supabase에서 proxy 인증정보 가져오기
+   */
+  private async loadProxyCredentials(): Promise<void> {
+    // 이미 로드되었으면 스킵
+    if (this.proxyUsername && this.proxyPassword) {
+      return;
+    }
+
+    const credentials = await AppConfigService.getNaverProxyCredentials();
+
+    if (!credentials.username || !credentials.password) {
+      throw new Error('Naver proxy credentials not found in app_config');
+    }
+
+    this.proxyUsername = credentials.username;
+    this.proxyPassword = credentials.password;
+
+    console.log('[NaverAuth] Proxy credentials loaded from Supabase');
   }
 
   /**
@@ -35,20 +57,21 @@ export class NaverAuthService {
   async getBearerTokenAndCookiesWithBrowser(browser: Browser): Promise<NaverSession> {
     console.log('🔑 네이버 Bearer 토큰 가져오는 중...');
 
+    // Supabase에서 proxy 인증정보 로드
+    await this.loadProxyCredentials();
+
     // 새 컨텍스트 생성 (프록시 설정 포함)
     const contextOptions: any = {
       userAgent:
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     };
 
-    // 프록시 설정
-    if (this.options.proxyUrl) {
-      contextOptions.proxy = {
-        server: this.options.proxyUrl,
-        username: this.options.proxyUsername,
-        password: this.options.proxyPassword,
-      };
-    }
+    // 프록시 설정 (항상 사용)
+    contextOptions.proxy = {
+      server: NAVER_PROXY_URL,
+      username: this.proxyUsername,
+      password: this.proxyPassword,
+    };
 
     const context = await browser.newContext(contextOptions);
     const page = await context.newPage();
@@ -65,7 +88,7 @@ export class NaverAuthService {
     // 요청 가로채기 - Authorization 헤더 추출
     page.on('request', (request) => {
       const url = request.url();
-      if (url.includes(`/api/complexes/overview/${this.options.complexId}`)) {
+      if (url.includes(`/api/complexes/overview/${NAVER_COMPLEX_ID}`)) {
         const auth = request.headers()['authorization'];
         if (auth?.startsWith('Bearer ')) {
           bearerToken = auth.replace('Bearer ', '');
@@ -76,7 +99,7 @@ export class NaverAuthService {
 
     // 네이버 부동산 페이지 접속
     await page.goto(
-      `https://new.land.naver.com/complexes/${this.options.complexId}?17&a=APT:ABYG:JGC:PRE&e=RETAIL&ad=true`,
+      `https://new.land.naver.com/complexes/${NAVER_COMPLEX_ID}?17&a=APT:ABYG:JGC:PRE&e=RETAIL&ad=true`,
       { waitUntil: 'networkidle', timeout: 60000 }
     );
 
@@ -118,12 +141,15 @@ export class NaverAuthService {
    * 단일 토큰 가져오기 (하위 호환성)
    */
   async getBearerTokenAndCookies(page: Page): Promise<NaverSession> {
+    // Supabase에서 proxy 인증정보 로드
+    await this.loadProxyCredentials();
+
     let bearerToken: string | null = null;
 
     // 요청 가로채기 - Authorization 헤더 추출
     page.on('request', (request) => {
       const url = request.url();
-      if (url.includes(`/api/complexes/overview/${this.options.complexId}`)) {
+      if (url.includes(`/api/complexes/overview/${NAVER_COMPLEX_ID}`)) {
         const auth = request.headers()['authorization'];
         if (auth?.startsWith('Bearer ')) {
           bearerToken = auth.replace('Bearer ', '');
@@ -135,7 +161,7 @@ export class NaverAuthService {
     // 네이버 부동산 페이지 접속
     console.log('🔑 네이버 Bearer 토큰 및 쿠키 가져오는 중...');
     await page.goto(
-      `https://new.land.naver.com/complexes/${this.options.complexId}?17&a=APT:ABYG:JGC:PRE&e=RETAIL&ad=true`,
+      `https://new.land.naver.com/complexes/${NAVER_COMPLEX_ID}?17&a=APT:ABYG:JGC:PRE&e=RETAIL&ad=true`,
       { waitUntil: 'networkidle' }
     );
 

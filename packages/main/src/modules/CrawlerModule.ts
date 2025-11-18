@@ -8,7 +8,6 @@ import { NaverAuthService } from '../services/crawler/NaverAuthService.js';
 import { NaverRankScraper } from '../services/crawler/NaverRankScraper.js';
 import { BrowserService } from '../services/browser/BrowserService.js';
 import type { CrawlerProgress } from '../types/index.js';
-import { BatchScheduler } from '../services/batch/BatchScheduler.js';
 
 /**
  * 크롤러 모듈
@@ -18,7 +17,6 @@ export class CrawlerModule implements AppModule {
   private offerRepo: OfferRepository | null = null;
   private competingAdsRepo: CompetingAdsRepository | null = null;
   private crawler: CrawlerService | null = null;
-  private batchScheduler: BatchScheduler | null = null;
 
   async enable({ app }: ModuleContext): Promise<void> {
     console.log('[CrawlerModule] Initializing...');
@@ -28,10 +26,6 @@ export class CrawlerModule implements AppModule {
     this.competingAdsRepo = new CompetingAdsRepository();
 
     this.registerHandlers();
-
-    // 배치 스케줄러 시작
-    this.batchScheduler = new BatchScheduler();
-    this.batchScheduler.start();
 
     // 윈도우가 생성되면 참조 저장
     app.on('browser-window-created', (_, window) => {
@@ -45,13 +39,6 @@ export class CrawlerModule implements AppModule {
       console.log(`[CrawlerModule] 기존 윈도우 ${existingWindows.length}개 발견, 참조 저장`);
       this.mainWindow = existingWindows[0];
     }
-
-    // 앱 종료 시 스케줄러 정리
-    app.on('before-quit', () => {
-      if (this.batchScheduler) {
-        this.batchScheduler.stop();
-      }
-    });
 
     console.log('[CrawlerModule] Crawler handlers registered');
   }

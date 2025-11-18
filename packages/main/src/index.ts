@@ -15,11 +15,11 @@ import {AdTestModule} from './modules/AdTestModule.js';
 import {PropertyOwnerModule} from './modules/PropertyOwnerModule.js';
 import {AgencyModule} from './modules/AgencyModule.js';
 import {CrawlerModule} from './modules/CrawlerModule.js';
+import {SchedulerModule} from './modules/SchedulerModule.js';
 
 
 export async function initApp(initConfig: AppInitConfig) {
   const moduleRunner = createModuleRunner()
-     // IPC 핸들러를 가장 먼저 등록
     .init(createWindowManagerModule({initConfig, openDevTools: true})) // DevTools 항상 열기 (디버깅용)
     .init(disallowMultipleAppInstance())
     .init(terminateAppOnLastWindowClose())
@@ -32,6 +32,7 @@ export async function initApp(initConfig: AppInitConfig) {
     .init(new PropertyOwnerModule())
     .init(new AgencyModule())
     .init(new CrawlerModule())
+    .init(new SchedulerModule())
 
     // Install DevTools extension if needed
     // .init(chromeDevToolsExtension({extension: 'VUEJS3_DEVTOOLS'}))

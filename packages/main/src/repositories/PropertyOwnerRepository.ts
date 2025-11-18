@@ -53,7 +53,7 @@ export class PropertyOwnerRepository {
     const { data, error } = await supabase
       .from('properties')
       .upsert(property, {
-        onConflict: 'property_name,dong,ho',
+        onConflict: 'agency_id,property_name,dong,ho',
         ignoreDuplicates: false,
       })
       .select()
@@ -125,6 +125,7 @@ export class PropertyOwnerRepository {
   ): Promise<PropertyWithVerification> {
     // 1. Property 생성/업데이트
     const property = await this.upsertProperty({
+      agency_id: verificationInfo.agency_id,
       property_name: propertyKey.name,
       dong: propertyKey.dong || null,
       ho: propertyKey.ho || null,

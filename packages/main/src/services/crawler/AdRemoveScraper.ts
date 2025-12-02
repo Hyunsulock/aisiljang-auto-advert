@@ -281,6 +281,77 @@ export class AdRemoveScraper {
             console.log('✅ verification 페이지 이동 완료');
             await this.delay(2000);
 
+            // (구)홍보확인서인 경우 전자 홍보확인서 작성 버튼 클릭
+            if (offer.adMethod && offer.adMethod.includes('(구)홍보확인서')) {
+              console.log('📎 (구)홍보확인서 - 전자 홍보확인서 작성 시작...');
+
+              try {
+                // 1. 전자 홍보확인서 작성하기 버튼 클릭 (팝업 열기)
+                const elecConfirmButton = page.locator('input#elecConfirmdocUrl');
+                if (await elecConfirmButton.count() > 0) {
+                  await elecConfirmButton.click();
+                  console.log('✅ 전자 홍보확인서 팝업 열기 완료');
+                  await this.delay(1500);
+                } else {
+                  console.warn('⚠️ 전자 홍보확인서 작성 버튼을 찾을 수 없습니다');
+                }
+
+                // 2. 팝업 내 "작성하기" 버튼 클릭
+                const elecSendStartButton = page.locator('button#elecSendStart');
+                if (await elecSendStartButton.count() > 0) {
+                  await elecSendStartButton.click();
+                  console.log('✅ 전자 홍보확인서 "작성하기" 버튼 클릭 완료');
+                  await this.delay(2000);
+                } else {
+                  console.warn('⚠️ "작성하기" 버튼을 찾을 수 없습니다');
+                }
+
+                // 3. Canvas에 체크 표시 그리기
+                const canvas = page.locator('canvas#canvasSignature');
+                if (await canvas.count() > 0) {
+                  console.log('📝 Canvas에 체크 표시 그리기 시작...');
+
+                  const box = await canvas.boundingBox();
+                  if (box) {
+                    // Canvas 왼쪽 상단 영역에 체크 표시 그리기
+                    // 보통 체크박스는 왼쪽 위쪽에 위치
+                    const baseX = box.x + 100;  // Canvas 시작점에서 100px 오른쪽
+                    const baseY = box.y + 100;  // Canvas 시작점에서 100px 아래
+
+                    // 체크 표시(✓) 그리기
+                    const startX = baseX;
+                    const startY = baseY + 10;
+                    const midX = baseX + 15;
+                    const midY = baseY + 25;
+                    const endX = baseX + 40;
+                    const endY = baseY - 10;
+
+                    await page.mouse.move(startX, startY);
+                    await page.mouse.down();
+                    await page.mouse.move(midX, midY, { steps: 5 });
+                    await page.mouse.move(endX, endY, { steps: 5 });
+                    await page.mouse.up();
+
+                    console.log('✅ 체크 표시 그리기 완료');
+                    await this.delay(500);
+
+                    // 4. "다음 (1/2)" 버튼 클릭
+                    const nextButton = page.locator('button.next');
+                    if (await nextButton.count() > 0) {
+                      await nextButton.click();
+                      console.log('✅ "다음 (1/2)" 버튼 클릭 완료');
+                      await this.delay(1500);
+                    }
+                  }
+                } else {
+                  console.warn('⚠️ Canvas를 찾을 수 없습니다');
+                }
+              } catch (error) {
+                console.error('❌ 전자 홍보확인서 작성 실패:', error);
+                throw error;
+              }
+            }
+
             // (신)홍보확인서인 경우 파일 업로드
             if (offer.adMethod && offer.adMethod.includes('(신)홍보확인서')) {
               console.log('📎 (신)홍보확인서 파일 업로드 시작...');
@@ -337,26 +408,6 @@ export class AdRemoveScraper {
                   const poaInput = page.locator('input#fileReferenceFileUrl2');
                   await poaInput.setInputFiles(localPath);
                   console.log('✅ 위임장 업로드 완료');
-                  uploadedFiles.push(localPath);
-                }
-
-                // 4. 등기부등본 (register_file_path) - 선택
-                if (propertyInfo.register_file_path) {
-                  console.log('📄 등기부등본 다운로드 중...');
-                  const localPath = path.join(tempDir, `register_${Date.now()}${path.extname(propertyInfo.register_file_path)}`);
-                  await this.fileStorageService.downloadFile(propertyInfo.register_file_path, localPath);
-
-                  // 라디오 버튼 선택 (fileRegisterUrlImgType1)
-                  const registerRadio = page.locator('label[for="fileRegisterUrlImgType1"]');
-                  if (await registerRadio.count() > 0) {
-                    await registerRadio.click();
-                    await this.delay(300);
-                  }
-
-                  // 파일 업로드
-                  const registerInput = page.locator('input#fileRegisterUrl');
-                  await registerInput.setInputFiles(localPath);
-                  console.log('✅ 등기부등본 업로드 완료');
                   uploadedFiles.push(localPath);
                 }
 

@@ -20,7 +20,7 @@ import {IpcModule} from './modules/IpcModule.js';
 
 export async function initApp(initConfig: AppInitConfig) {
   const moduleRunner = createModuleRunner()
-    .init(createWindowManagerModule({initConfig, openDevTools: true})) // DevTools 항상 열기 (디버깅용)
+    .init(createWindowManagerModule({initConfig, openDevTools: false})) // 배포 시 DevTools 닫기
     .init(disallowMultipleAppInstance())
     .init(terminateAppOnLastWindowClose())
     .init(hardwareAccelerationMode({enable: false}))

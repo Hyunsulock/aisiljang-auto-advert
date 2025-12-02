@@ -73,10 +73,6 @@ export async function getCurrentUserAgencyId(): Promise<string | null> {
 export const STORAGE_BUCKET = 'verification-documents';
 
 // Storage 경로 헬퍼 함수
-export function getRegisterFilePath(agencyId: string, propertyName: string, dong: string, ho: string, filename: string): string {
-  return `register/${agencyId}/${propertyName}/${dong}/${ho}/${filename}`;
-}
-
 export function getReferenceFilePath(agencyId: string, propertyName: string, dong: string, ho: string, filename: string): string {
   return `reference/${agencyId}/${propertyName}/${dong}/${ho}/${filename}`;
 }

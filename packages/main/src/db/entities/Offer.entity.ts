@@ -80,8 +80,8 @@ export class Offer {
   @Column({ name: 'shared_rank', type: 'int', nullable: true })
   sharedRank?: number | null;
 
-  @Column({ name: 'is_shared', type: 'int', nullable: true })
-  isShared?: number | null;
+  @Column({ name: 'is_shared', type: 'boolean', nullable: true })
+  isShared?: boolean | null;
 
   @Column({ name: 'shared_count', type: 'int', nullable: true })
   sharedCount?: number | null;

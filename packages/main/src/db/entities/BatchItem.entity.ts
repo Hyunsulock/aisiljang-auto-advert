@@ -44,8 +44,8 @@ export class BatchItem {
   @Column({ name: 'modified_rent', type: 'text', nullable: true })
   modifiedRent?: string | null;
 
-  @Column({ name: 'modified_floor_exposure', type: 'int', nullable: true })
-  modifiedFloorExposure?: number | null;
+  @Column({ name: 'modified_floor_exposure', type: 'boolean', nullable: true })
+  modifiedFloorExposure?: boolean | null;
 
   // 오류 정보
   @Column({ name: 'error_message', type: 'text', nullable: true })

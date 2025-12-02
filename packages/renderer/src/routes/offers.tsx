@@ -64,8 +64,10 @@ function OffersPage() {
       if (response.success) {
         setOffers(response.data);
 
-        // 소유자 정보 가져오기 (로켓등록 제외)
-        const nonRocketOffers = response.data.filter((o: Offer) => !o.adMethod?.includes('로켓'));
+        // 소유자 정보 가져오기 (로켓등록 및 (구)홍보확인서 제외)
+        const nonRocketOffers = response.data.filter((o: Offer) =>
+          !o.adMethod?.includes('로켓') && !o.adMethod?.includes('(구)홍보확인서')
+        );
         if (nonRocketOffers.length > 0) {
           const ownerInfo = await getPropertyOwnerInfo(
             nonRocketOffers.map((o: Offer) => ({
@@ -184,16 +186,11 @@ function OffersPage() {
 
       // 파일 처리는 IPC 핸들러에서 처리하므로 파일 경로만 전달
       let documentFilePath: string | undefined;
-      let registerFilePath: string | undefined;
       let powerOfAttorneyFilePath: string | undefined;
 
       // File 객체에서 경로 추출 (Electron에서는 file.path 사용 가능)
       if (files.document) {
         documentFilePath = (files.document as any).path;
-      }
-
-      if (files.register) {
-        registerFilePath = (files.register as any).path;
       }
 
       if (files.powerOfAttorney) {
@@ -206,14 +203,11 @@ function OffersPage() {
         selectedProperty.ho || '',
         {
           owner_type: data.ownerType,
-          register_unique_no: data.registerUniqueNo || null,
           // 기존 파일 경로 유지 (새 파일이 없으면)
           document_file_path: existingOwnerInfo?.filePaths?.document || '',
-          register_file_path: existingOwnerInfo?.filePaths?.register || null,
           power_of_attorney_file_path: existingOwnerInfo?.filePaths?.powerOfAttorney || null,
         },
         documentFilePath,
-        registerFilePath,
         powerOfAttorneyFilePath
       );
 

@@ -3,13 +3,10 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "typecheck": "tsc --noEmit",
-    "db:migrate": "drizzle-kit migrate",
-    "db:generate": "drizzle-kit generate"
+    "typecheck": "tsc --noEmit"
   },
   "files": [
     "dist/**",
-    "drizzle/**",
     "package.json"
   ],
   "exports": {
@@ -28,8 +25,6 @@
     "better-sqlite3": "^12.4.1",
     "cheerio": "^1.1.2",
     "dotenv": "^17.2.3",
-    "drizzle-kit": "^0.31.5",
-    "drizzle-orm": "^0.44.6",
     "electron-updater": "6.6.2",
     "https-proxy-agent": "^7.0.6",
     "node-machine-id": "^1.1.12",

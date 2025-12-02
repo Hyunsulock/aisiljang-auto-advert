@@ -1,1 +1,0 @@
-ALTER TABLE `competing_ads_analysis` ADD `my_floor_exposed` integer;

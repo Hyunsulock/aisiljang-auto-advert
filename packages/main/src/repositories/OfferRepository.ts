@@ -138,11 +138,11 @@ export class OfferRepository {
         rankingAnalysis: analysis
           ? {
               myArticle: null,
-              myRanking: analysis.myRanking,
-              myFloorExposed: analysis.myFloorExposed || false,
+              myRanking: analysis.myRanking ?? null,
+              myFloorExposed: analysis.myFloorExposed ?? false,
               totalCount: analysis.totalCount ?? 0,
               competingAds: JSON.parse(analysis.competingAdsData || '[]'),
-              hasFloorExposureAdvantage: analysis.hasFloorExposureAdvantage || false,
+              hasFloorExposureAdvantage: analysis.hasFloorExposureAdvantage ?? false,
             }
           : null,
       });

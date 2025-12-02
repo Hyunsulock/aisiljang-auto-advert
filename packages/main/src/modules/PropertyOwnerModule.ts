@@ -70,7 +70,6 @@ export class PropertyOwnerModule implements AppModule {
         ho: string,
         verificationInfo: Omit<PropertyVerificationInfoInsert, 'property_id'>,
         documentFilePath?: string,
-        registerFilePath?: string,
         powerOfAttorneyFilePath?: string
       ) => {
         try {
@@ -80,7 +79,6 @@ export class PropertyOwnerModule implements AppModule {
             ho,
             verificationInfo,
             documentFilePath,
-            registerFilePath,
             powerOfAttorneyFilePath,
           });
 
@@ -92,7 +90,6 @@ export class PropertyOwnerModule implements AppModule {
 
           // 파일 업로드
           let documentStoragePath: string | undefined;
-          let registerStoragePath: string | undefined;
           let powerOfAttorneyStoragePath: string | undefined;
 
           // 한글 경로 문제 해결: 간단한 해시 사용
@@ -128,19 +125,6 @@ export class PropertyOwnerModule implements AppModule {
             console.log('[PropertyOwnerModule] Document uploaded:', documentStoragePath);
           }
 
-          if (registerFilePath) {
-            const ext = path.extname(registerFilePath);
-            const fileName = `register_${Date.now()}${ext}`;
-            const fullPath = `${agencyId}/registers/${propertyPath}/${fileName}`;
-            console.log('[PropertyOwnerModule] Uploading register to:', fullPath);
-            const uploadResult = await this.fileStorageService.uploadFile(
-              registerFilePath,
-              fullPath
-            );
-            registerStoragePath = uploadResult.path;
-            console.log('[PropertyOwnerModule] Register uploaded:', registerStoragePath);
-          }
-
           if (powerOfAttorneyFilePath) {
             const ext = path.extname(powerOfAttorneyFilePath);
             const fileName = `power_of_attorney_${Date.now()}${ext}`;
@@ -158,7 +142,6 @@ export class PropertyOwnerModule implements AppModule {
             ...verificationInfo,
             agency_id: agencyId,
             document_file_path: documentStoragePath || verificationInfo.document_file_path || '',
-            register_file_path: registerStoragePath || verificationInfo.register_file_path || null,
             power_of_attorney_file_path: powerOfAttorneyStoragePath || verificationInfo.power_of_attorney_file_path || null,
           };
 
@@ -202,9 +185,6 @@ export class PropertyOwnerModule implements AppModule {
           // Supabase Storage에서 파일 삭제
           if (property.document_file_path) {
             await this.fileStorageService.deleteFile(property.document_file_path);
-          }
-          if (property.register_file_path) {
-            await this.fileStorageService.deleteFile(property.register_file_path);
           }
           if (property.power_of_attorney_file_path) {
             await this.fileStorageService.deleteFile(property.power_of_attorney_file_path);
@@ -299,7 +279,7 @@ export class PropertyOwnerModule implements AppModule {
      */
     ipcMain.handle(
       'propertyOwner:deleteFile',
-      async (_, propertyName: string, dong: string, ho: string, fileType: 'document' | 'register' | 'powerOfAttorney') => {
+      async (_, propertyName: string, dong: string, ho: string, fileType: 'document' | 'powerOfAttorney') => {
         try {
           // 먼저 현재 property 정보 가져오기
           const properties = await this.propertyOwnerRepo.getPropertiesByKeys([
@@ -322,11 +302,6 @@ export class PropertyOwnerModule implements AppModule {
             case 'document':
               filePathToDelete = property.document_file_path;
               updateData.document_file_path = ''; // 필수 필드이므로 빈 문자열
-              break;
-            case 'register':
-              filePathToDelete = property.register_file_path;
-              updateData.register_file_path = null;
-              updateData.register_unique_no = null; // 등기부등본 삭제 시 고유번호도 삭제
               break;
             case 'powerOfAttorney':
               filePathToDelete = property.power_of_attorney_file_path;
@@ -352,9 +327,7 @@ export class PropertyOwnerModule implements AppModule {
               agency_id: agencyId,
               owner_type: property.owner_type as '개인' | '법인' | '외국인' | '위임장',
               document_file_path: (updateData.document_file_path ?? property.document_file_path) || '',
-              register_file_path: updateData.register_file_path !== undefined ? updateData.register_file_path : property.register_file_path,
               power_of_attorney_file_path: updateData.power_of_attorney_file_path !== undefined ? updateData.power_of_attorney_file_path : property.power_of_attorney_file_path,
-              register_unique_no: updateData.register_unique_no !== undefined ? updateData.register_unique_no : property.register_unique_no,
             }
           );
 

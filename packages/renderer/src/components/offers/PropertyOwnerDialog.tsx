@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Upload, Trash2, Download } from 'lucide-react';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import type { PropertyOwnerInfo } from '../../lib/supabase';
 
 interface PropertyOwnerDialogProps {
@@ -17,12 +16,10 @@ interface PropertyOwnerDialogProps {
 
 export interface PropertyOwnerFormData {
   ownerType: '개인' | '법인' | '외국인' | '위임장';
-  registerUniqueNo: string; // 등기부등본 고유번호
 }
 
 export interface PropertyOwnerFiles {
   document: File | null; // 서류 (필수)
-  register: File | null; // 등기부등본 (조건부)
   powerOfAttorney: File | null; // 위임장 (외국인/위임장 케이스)
 }
 
@@ -38,18 +35,15 @@ export function PropertyOwnerDialog({
 }: PropertyOwnerDialogProps) {
   const [formData, setFormData] = useState<PropertyOwnerFormData>({
     ownerType: '개인',
-    registerUniqueNo: '',
   });
 
   const [files, setFiles] = useState<PropertyOwnerFiles>({
     document: null,
-    register: null,
     powerOfAttorney: null,
   });
 
   const [existingFiles, setExistingFiles] = useState({
     document: false,
-    register: false,
     powerOfAttorney: false,
   });
 
@@ -67,7 +61,6 @@ export function PropertyOwnerDialog({
       // 기존 데이터 로드
       setFormData({
         ownerType,
-        registerUniqueNo: ownerInfo.registerUniqueNo || '',
       });
 
       // 초기 소유자 타입 저장
@@ -76,7 +69,6 @@ export function PropertyOwnerDialog({
       // 기존 파일 정보 설정
       setExistingFiles({
         document: ownerInfo.files.includes('서류'),
-        register: ownerInfo.files.includes('등기부등본'),
         powerOfAttorney: ownerInfo.files.includes('위임장'),
       });
 
@@ -89,21 +81,14 @@ export function PropertyOwnerDialog({
       // 새로운 소유자 정보 입력 시 초기화
       setFormData({
         ownerType: '개인',
-        registerUniqueNo: '',
       });
       setInitialOwnerType('개인');
       setExistingFiles({
         document: false,
-        register: false,
         powerOfAttorney: false,
       });
     }
   }, [ownerInfo]);
-
-  // 등기부등본 필수 여부 확인
-  const isRegisterRequired = () => {
-    return formData.ownerType === '외국인' || formData.ownerType === '위임장';
-  };
 
   // 위임장 표시 여부 확인
   const shouldShowPowerOfAttorney = () => {
@@ -119,20 +104,8 @@ export function PropertyOwnerDialog({
       return;
     }
 
-    // 등기부등본 필수 체크
-    if (isRegisterRequired() && !files.register && !existingFiles.register) {
-      alert(`${formData.ownerType}의 경우 등기부등본이 필수입니다`);
-      return;
-    }
-
-    // 등기부등본 고유번호 체크 (등기부등본 파일이 있을 때)
-    if ((files.register || existingFiles.register) && !formData.registerUniqueNo.trim()) {
-      alert('등기부등본 고유번호를 입력해주세요');
-      return;
-    }
-
     // 변경 사항 확인: 새 파일이 선택되었거나, 소유자 정보가 없는 경우만 저장
-    const hasNewFiles = files.document !== null || files.register !== null || files.powerOfAttorney !== null;
+    const hasNewFiles = files.document !== null || files.powerOfAttorney !== null;
     const hasOwnerInfo = ownerInfo?.hasOwnerInfo;
 
     if (!hasNewFiles && hasOwnerInfo) {
@@ -171,7 +144,7 @@ export function PropertyOwnerDialog({
     }
   };
 
-  const handleFileSelect = async (type: 'document' | 'register' | 'powerOfAttorney') => {
+  const handleFileSelect = async (type: 'document' | 'powerOfAttorney') => {
     try {
       const result = await (window as any).propertyOwner.selectFile();
 
@@ -189,13 +162,13 @@ export function PropertyOwnerDialog({
   };
 
   const handleFileChange = (
-    type: 'document' | 'register' | 'powerOfAttorney',
+    type: 'document' | 'powerOfAttorney',
     file: File | null
   ) => {
     setFiles({ ...files, [type]: file });
   };
 
-  const handleDownloadFile = async (fileType: 'document' | 'register' | 'powerOfAttorney') => {
+  const handleDownloadFile = async (fileType: 'document' | 'powerOfAttorney') => {
     try {
       if (!ownerInfo?.filePaths) {
         alert('파일 정보를 찾을 수 없습니다');
@@ -209,10 +182,6 @@ export function PropertyOwnerDialog({
         case 'document':
           storageFilePath = ownerInfo.filePaths.document;
           fileName = '서류.pdf';
-          break;
-        case 'register':
-          storageFilePath = ownerInfo.filePaths.register;
-          fileName = '등기부등본.pdf';
           break;
         case 'powerOfAttorney':
           storageFilePath = ownerInfo.filePaths.powerOfAttorney;
@@ -238,10 +207,9 @@ export function PropertyOwnerDialog({
     }
   };
 
-  const handleDeleteFile = async (fileType: 'document' | 'register' | 'powerOfAttorney') => {
+  const handleDeleteFile = async (fileType: 'document' | 'powerOfAttorney') => {
     const fileTypeNames = {
       document: '서류',
-      register: '등기부등본',
       powerOfAttorney: '위임장',
     };
 
@@ -265,14 +233,6 @@ export function PropertyOwnerDialog({
           ...existingFiles,
           [fileType]: false,
         });
-
-        // 등기부등본 삭제 시 고유번호도 초기화
-        if (fileType === 'register') {
-          setFormData({
-            ...formData,
-            registerUniqueNo: '',
-          });
-        }
       } else {
         alert('파일 삭제 실패: ' + (result.error || '알 수 없는 오류'));
       }
@@ -286,7 +246,7 @@ export function PropertyOwnerDialog({
   const handleOwnerTypeChange = async (newOwnerType: '개인' | '법인' | '외국인' | '위임장') => {
     // 소유자 타입이 변경되었고 기존 파일이 있는 경우
     if (newOwnerType !== initialOwnerType) {
-      const hasExistingFiles = existingFiles.document || existingFiles.register || existingFiles.powerOfAttorney;
+      const hasExistingFiles = existingFiles.document || existingFiles.powerOfAttorney;
 
       if (hasExistingFiles) {
         const confirmed = confirm(
@@ -302,10 +262,9 @@ export function PropertyOwnerDialog({
         try {
           setIsDeletingFiles(true);
 
-          const filesToDelete: Array<'document' | 'register' | 'powerOfAttorney'> = [];
+          const filesToDelete: Array<'document' | 'powerOfAttorney'> = [];
 
           if (existingFiles.document) filesToDelete.push('document');
-          if (existingFiles.register) filesToDelete.push('register');
           if (existingFiles.powerOfAttorney) filesToDelete.push('powerOfAttorney');
 
           // 순차적으로 파일 삭제
@@ -321,14 +280,12 @@ export function PropertyOwnerDialog({
           // existingFiles 상태 초기화
           setExistingFiles({
             document: false,
-            register: false,
             powerOfAttorney: false,
           });
 
-          // 등기부등본 고유번호 초기화
+          // 소유자 타입 변경
           setFormData({
             ownerType: newOwnerType,
-            registerUniqueNo: '',
           });
 
           alert('기존 서류가 모두 삭제되었습니다. 새로운 서류를 업로드해주세요.');
@@ -489,79 +446,6 @@ export function PropertyOwnerDialog({
               )}
             </div>
 
-            {/* 등기부등본 */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                등기부등본 {isRegisterRequired() && '*'}
-              </label>
-              {existingFiles.register && !files.register ? (
-                <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg mb-2">
-                  <span className="text-sm text-green-700 font-medium flex-1">✓ 파일 업로드됨</span>
-                  <Button
-                    type="button"
-                    onClick={() => handleDownloadFile('register')}
-                    className="bg-blue-500 hover:bg-blue-600 h-8 px-3 py-0 text-xs"
-                  >
-                    <Download size={14} className="mr-1" />
-                    다운로드
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => handleDeleteFile('register')}
-                    className="bg-red-500 hover:bg-red-600 h-8 px-3 py-0 text-xs"
-                  >
-                    <Trash2 size={14} className="mr-1" />
-                    삭제
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    onClick={() => handleFileSelect('register')}
-                    className="flex-1 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300"
-                  >
-                    <Upload size={16} className="mr-2" />
-                    {files.register ? '파일 선택됨' : '파일 선택'}
-                  </Button>
-                  {files.register && (
-                    <Button
-                      type="button"
-                      onClick={() => handleFileChange('register', null)}
-                      className="bg-red-500 hover:bg-red-600"
-                    >
-                      <Trash2 size={16} />
-                    </Button>
-                  )}
-                </div>
-              )}
-              {formData.ownerType === '개인' && (
-                <p className="text-xs text-gray-500 mt-1">
-                  사업자등록증을 선택한 경우 등기부등본이 필수입니다
-                </p>
-              )}
-              {isRegisterRequired() && (
-                <p className="text-xs text-gray-500 mt-1">필수 항목입니다</p>
-              )}
-            </div>
-
-            {/* 등기부등본 고유번호 */}
-            {(files.register || existingFiles.register) && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  등기부등본 고유번호 *
-                </label>
-                <Input
-                  value={formData.registerUniqueNo}
-                  onChange={(e) =>
-                    setFormData({ ...formData, registerUniqueNo: e.target.value })
-                  }
-                  placeholder="예: 1234-5678-9012"
-                  className="w-full"
-                />
-              </div>
-            )}
-
             {/* 위임장 (외국인/위임장 케이스) */}
             {shouldShowPowerOfAttorney() && (
               <div>
@@ -623,32 +507,25 @@ export function PropertyOwnerDialog({
               {formData.ownerType === '개인' && (
                 <>
                   <li>• 서류: 분양계약서 또는 사업자등록증 (필수)</li>
-                  <li>• 등기부등본: 사업자등록증 선택 시 필수</li>
                 </>
               )}
               {formData.ownerType === '법인' && (
                 <>
                   <li>• 서류: 법인 서류 (필수)</li>
-                  <li>• 등기부등본: 선택</li>
                 </>
               )}
               {formData.ownerType === '외국인' && (
                 <>
                   <li>• 서류: 외국인 서류 (필수)</li>
-                  <li>• 등기부등본: 필수</li>
                   <li>• 위임장: 선택</li>
                 </>
               )}
               {formData.ownerType === '위임장' && (
                 <>
                   <li>• 서류: 위임장 관련 서류 (필수)</li>
-                  <li>• 등기부등본: 필수</li>
                   <li>• 위임장: 필수</li>
                 </>
               )}
-              <li className="mt-2 font-medium">
-                • 등기부등본 파일 첨부 시 고유번호 입력 필수
-              </li>
             </ul>
           </div>
 

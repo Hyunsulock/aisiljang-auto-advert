@@ -1,1 +1,0 @@
-ALTER TABLE `batches` ADD `scheduled_at` integer;

@@ -139,4 +139,17 @@ const agency = {
     ipcRenderer.invoke('agency:submitMachineIdRequest'),
 };
 
+// 개별 export (named import 지원)
 export {sha256sum, versions, send, crawler, offers, db, batch, auth, adTest, propertyOwner, agency};
+
+// API 객체들을 하나로 묶어서 export (exposed.ts에서 사용)
+export const api = {
+  crawler,
+  offers,
+  db,
+  batch,
+  auth,
+  adTest,
+  propertyOwner,
+  agency,
+};

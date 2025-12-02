@@ -169,8 +169,6 @@ export type Database = {
           owner_type: string
           power_of_attorney_file_path: string | null
           property_id: string
-          register_file_path: string | null
-          register_unique_no: string | null
           updated_at: string
         }
         Insert: {
@@ -181,8 +179,6 @@ export type Database = {
           owner_type: string
           power_of_attorney_file_path?: string | null
           property_id: string
-          register_file_path?: string | null
-          register_unique_no?: string | null
           updated_at?: string
         }
         Update: {
@@ -193,8 +189,6 @@ export type Database = {
           owner_type?: string
           power_of_attorney_file_path?: string | null
           property_id?: string
-          register_file_path?: string | null
-          register_unique_no?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -267,8 +261,6 @@ export type Database = {
           property_created_at: string
           property_name: string
           property_updated_at: string
-          register_file_path: string
-          register_unique_no: string
           verification_created_at: string
           verification_id: string
           verification_updated_at: string
@@ -408,3 +400,15 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
+// Helper types for convenience
+export type Property = Tables<'properties'>
+export type PropertyInsert = TablesInsert<'properties'>
+export type PropertyUpdate = TablesUpdate<'properties'>
+
+export type PropertyVerificationInfo = Tables<'property_verification_info'>
+export type PropertyVerificationInfoInsert = TablesInsert<'property_verification_info'>
+export type PropertyVerificationInfoUpdate = TablesUpdate<'property_verification_info'>
+
+// Combined type for property with verification info
+export type PropertyWithVerification = Database['public']['Functions']['get_properties_by_keys']['Returns'][number]

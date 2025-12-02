@@ -1,4 +1,4 @@
-import { supabase, STORAGE_BUCKET, getRegisterFilePath, getReferenceFilePath } from '../lib/supabase.js';
+import { supabase, STORAGE_BUCKET, getReferenceFilePath } from '../lib/supabase.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -42,21 +42,6 @@ export class FileStorageService {
       path: data.path,
       url: urlData.publicUrl,
     };
-  }
-
-  /**
-   * 등기부등본 파일 업로드
-   */
-  async uploadRegisterFile(
-    localFilePath: string,
-    agencyId: string,
-    propertyName: string,
-    dong: string,
-    ho: string
-  ): Promise<{ path: string; url: string }> {
-    const filename = `register_${Date.now()}${path.extname(localFilePath)}`;
-    const storageFilePath = getRegisterFilePath(agencyId, propertyName, dong, ho, filename);
-    return this.uploadFile(localFilePath, storageFilePath);
   }
 
   /**

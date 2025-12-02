@@ -117,8 +117,8 @@ export const useOfferColumns = (handlePriceChange: (offerId: number, field: 'pri
 
         const offer = row.original;
 
-        // 로켓등록인 경우 소유자 정보 관리 불필요
-        if (offer.adMethod?.includes('로켓')) {
+        // 로켓등록 또는 (구)홍보확인서인 경우 소유자 정보 관리 불필요
+        if (offer.adMethod?.includes('로켓') || offer.adMethod?.includes('(구)홍보확인서')) {
           return <span className="text-gray-400 text-xs">-</span>;
         }
 

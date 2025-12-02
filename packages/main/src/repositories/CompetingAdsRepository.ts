@@ -65,11 +65,11 @@ export class CompetingAdsRepository {
 
     return {
       myArticle: null, // 필요시 offers 테이블에서 조회
-      myRanking: result.myRanking,
-      myFloorExposed: result.myFloorExposed || false,
+      myRanking: result.myRanking ?? null,
+      myFloorExposed: result.myFloorExposed ?? false,
       totalCount: result.totalCount ?? 0,
       competingAds: JSON.parse(result.competingAdsData || '[]'),
-      hasFloorExposureAdvantage: result.hasFloorExposureAdvantage || false,
+      hasFloorExposureAdvantage: result.hasFloorExposureAdvantage ?? false,
     };
   }
 

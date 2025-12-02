@@ -22,15 +22,15 @@ export class CompetingAdsAnalysis {
   @Column({ name: 'my_ranking', type: 'int', nullable: true })
   myRanking?: number | null;
 
-  @Column({ name: 'my_floor_exposed', type: 'int', nullable: true })
-  myFloorExposed?: number | null;
+  @Column({ name: 'my_floor_exposed', type: 'boolean', nullable: true })
+  myFloorExposed?: boolean | null;
 
   @Column({ name: 'total_count', type: 'int', nullable: true })
   totalCount?: number | null;
 
   // 경쟁 우위 플래그
-  @Column({ name: 'has_floor_exposure_advantage', type: 'int', nullable: true })
-  hasFloorExposureAdvantage?: number | null;
+  @Column({ name: 'has_floor_exposure_advantage', type: 'boolean', nullable: true })
+  hasFloorExposureAdvantage?: boolean | null;
 
   // 경쟁 광고 데이터 (JSON)
   @Column({ name: 'competing_ads_data', type: 'text', nullable: true })

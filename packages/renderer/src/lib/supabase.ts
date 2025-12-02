@@ -17,11 +17,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 export interface PropertyOwnerInfo {
   hasOwnerInfo: boolean;
   ownerType?: string; // 개인, 법인, 외국인, 위임장
-  files: string[]; // 예: ['서류', '등기부등본', '위임장']
-  registerUniqueNo?: string; // 등기부등본 고유번호
+  files: string[]; // 예: ['서류', '위임장']
   filePaths?: {
     document?: string;
-    register?: string;
     powerOfAttorney?: string;
   };
 }
@@ -63,11 +61,6 @@ export async function getPropertyOwnerInfo(
       files.push('서류');
     }
 
-    // 등기부등본
-    if (item.register_file_path) {
-      files.push('등기부등본');
-    }
-
     // 위임장
     if (item.power_of_attorney_file_path) {
       files.push('위임장');
@@ -77,10 +70,8 @@ export async function getPropertyOwnerInfo(
       hasOwnerInfo: !!item.verification_id,
       ownerType: item.owner_type,
       files,
-      registerUniqueNo: item.register_unique_no,
       filePaths: {
         document: item.document_file_path,
-        register: item.register_file_path,
         powerOfAttorney: item.power_of_attorney_file_path,
       },
     });

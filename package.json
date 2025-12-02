@@ -1,7 +1,7 @@
 {
   "name": "estait-advert",
   "description": "auto-advert",
-  "version": "3.4.1",
+  "version": "3.4.2",
   "private": true,
   "type": "module",
   "author": {
@@ -21,10 +21,10 @@
     "compile": "npm run build && electron-builder build --config electron-builder.mjs",
     "compile:win": "npm run build && electron-builder build --config electron-builder.mjs --win",
     "compile:mac": "npm run build && electron-builder build --config electron-builder.mjs --mac",
-    "publish": "npm run build && electron-builder build --config electron-builder.mjs --publish always",
-    "publish:github": "npm run build && electron-builder build --config electron-builder.mjs --publish always",
+    "publish": "npm run build && dotenv -- electron-builder build --config electron-builder.mjs --publish always",
+    "publish:github": "npm run build && dotenv -- electron-builder build --config electron-builder.mjs --publish always",
     "test": "npx playwright test ./tests/e2e.spec.ts",
-    "start": "node packages/dev-mode.js",
+    "start": "npm run build && npx electron-rebuild -f -w better-sqlite3 && node packages/dev-mode.js",
     "typecheck": "npm run typecheck -ws --if-present",
     "create-renderer": "cd packages && node ./integrate-renderer/create-renderer.js",
     "integrate-renderer": "npm start --workspace @app/integrate-renderer",
@@ -35,6 +35,7 @@
     "@playwright/test": "1.55.1",
     "@types/node": "24.5.2",
     "create-vite": "7.1.3",
+    "dotenv-cli": "^11.0.0",
     "electron": "38.1.2",
     "electron-builder": "26.0.12",
     "electron-rebuild": "^3.2.9",
@@ -43,7 +44,7 @@
   },
   "dependencies": {
     "@app/main": "*",
-    "better-sqlite3": "^12.4.1",
+    "better-sqlite3": "^12.5.0",
     "dotenv": "^17.2.3",
     "node-machine-id": "^1.1.12"
   }

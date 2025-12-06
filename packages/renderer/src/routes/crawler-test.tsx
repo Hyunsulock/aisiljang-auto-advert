@@ -40,6 +40,14 @@ function CrawlerTest() {
   const [modifyResult, setModifyResult] = useState<any>(null);
   const [modifyError, setModifyError] = useState('');
 
+  // (신)홍보확인서 테스트용 상태
+  const [verificationName, setVerificationName] = useState('');
+  const [verificationDong, setVerificationDong] = useState('');
+  const [verificationHo, setVerificationHo] = useState('');
+  const [isTestingVerification, setIsTestingVerification] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<any>(null);
+  const [verificationError, setVerificationError] = useState('');
+
   // 더미 데이터
   const dummyData = {
     myArticle: {
@@ -645,6 +653,118 @@ function CrawlerTest() {
               <p><strong>처리 시간:</strong> {new Date().toLocaleString()}</p>
               {modifyResult.message && (
                 <p><strong>메시지:</strong> {modifyResult.message}</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* (신)홍보확인서 테스트 섹션 */}
+      <div className="space-y-4 mb-8 pb-8 border-b">
+        <h2 className="text-xl font-semibold">📎 (신)홍보확인서 파일 업로드 테스트</h2>
+        <div className="text-sm text-gray-600 mb-4">
+          <p>이실장 사이트에서 (신)홍보확인서 파일 업로드 기능을 테스트합니다.</p>
+          <p className="text-blue-600 font-medium mt-1">
+            ℹ️ ad_list 페이지에서 대기 후, 수동으로 광고하기 버튼 클릭 시 파일 업로드 진행
+          </p>
+          <p className="text-green-600 font-medium mt-1">
+            ✅ 테스트 모드: naverSendSave 버튼은 클릭하지 않습니다
+          </p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">매물명 (필수)</label>
+            <Input
+              type="text"
+              placeholder="예: 고덕그라시움"
+              value={verificationName}
+              onChange={(e) => setVerificationName(e.target.value)}
+              disabled={isTestingVerification}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">동 (선택)</label>
+            <Input
+              type="text"
+              placeholder="예: 103"
+              value={verificationDong}
+              onChange={(e) => setVerificationDong(e.target.value)}
+              disabled={isTestingVerification}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">호 (선택)</label>
+            <Input
+              type="text"
+              placeholder="예: 704"
+              value={verificationHo}
+              onChange={(e) => setVerificationHo(e.target.value)}
+              disabled={isTestingVerification}
+            />
+          </div>
+        </div>
+
+        <Button
+          onClick={async () => {
+            if (!verificationName.trim()) {
+              setVerificationError('매물명을 입력해주세요');
+              return;
+            }
+
+            try {
+              setIsTestingVerification(true);
+              setVerificationError('');
+              setVerificationResult(null);
+
+              console.log('📎 (신)홍보확인서 테스트 시작:', {
+                name: verificationName.trim(),
+                dong: verificationDong.trim() || undefined,
+                ho: verificationHo.trim() || undefined,
+              });
+
+              const response = await (window as any).adTest.testNewVerification({
+                name: verificationName.trim(),
+                dong: verificationDong.trim() || undefined,
+                ho: verificationHo.trim() || undefined,
+              });
+
+              if (response.success) {
+                setVerificationResult(response);
+                console.log('✅ (신)홍보확인서 테스트 성공:', response);
+              } else {
+                setVerificationError(response.error || '테스트 실패');
+                console.error('❌ (신)홍보확인서 테스트 실패:', response);
+              }
+            } catch (err) {
+              const errorMessage = err instanceof Error ? err.message : String(err);
+              setVerificationError(errorMessage);
+              console.error('❌ (신)홍보확인서 테스트 오류:', err);
+            } finally {
+              setIsTestingVerification(false);
+            }
+          }}
+          disabled={isTestingVerification || !verificationName.trim()}
+          className="bg-purple-600 hover:bg-purple-700"
+        >
+          {isTestingVerification ? '테스트 진행 중...' : '신홍보 테스트 시작'}
+        </Button>
+
+        {verificationError && (
+          <div className="p-4 bg-red-50 rounded-lg text-red-700 border border-red-200">
+            <p className="font-medium">❌ 오류 발생:</p>
+            <p className="mt-1">{verificationError}</p>
+          </div>
+        )}
+
+        {verificationResult && (
+          <div className="border rounded-lg p-4 bg-green-50 border-green-200">
+            <h3 className="font-bold mb-3 text-lg text-green-800">✅ 테스트 완료!</h3>
+            <div className="space-y-2 text-sm">
+              <p><strong>매물:</strong> {verificationName} {verificationDong && `${verificationDong}동`} {verificationHo && `${verificationHo}호`}</p>
+              <p><strong>처리 시간:</strong> {new Date().toLocaleString()}</p>
+              {verificationResult.message && (
+                <p><strong>메시지:</strong> {verificationResult.message}</p>
               )}
             </div>
           </div>

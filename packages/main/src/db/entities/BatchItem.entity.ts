@@ -15,16 +15,29 @@ export class BatchItem {
   @Column({ name: 'batch_id', type: 'int' })
   batchId!: number;
 
-  @Column({ name: 'offer_id', type: 'int' })
-  offerId!: number;
+  @Column({ name: 'offer_id', type: 'int', nullable: true })
+  offerId?: number | null;
 
   @ManyToOne(() => Batch, batch => batch.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batch_id' })
   batch?: Batch;
 
-  @ManyToOne(() => Offer, offer => offer.batchItems, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Offer, offer => offer.batchItems, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'offer_id' })
   offer?: Offer;
+
+  // 매물 정보 스냅샷 (매물 삭제 후에도 히스토리 유지)
+  @Column({ name: 'offer_name', type: 'text', nullable: true })
+  offerName?: string | null;
+
+  @Column({ name: 'offer_dong', type: 'text', nullable: true })
+  offerDong?: string | null;
+
+  @Column({ name: 'offer_ho', type: 'text', nullable: true })
+  offerHo?: string | null;
+
+  @Column({ name: 'offer_deal_type', type: 'text', nullable: true })
+  offerDealType?: string | null;
 
   // 작업 상태
   @Column({ type: 'text', default: 'pending' })
@@ -46,6 +59,14 @@ export class BatchItem {
 
   @Column({ name: 'modified_floor_exposure', type: 'boolean', nullable: true })
   modifiedFloorExposure?: boolean | null;
+
+  // 재광고 여부
+  @Column({ name: 'should_re_advertise', type: 'boolean', default: true })
+  shouldReAdvertise!: boolean;
+
+  // 현재 진행 단계 (상세 추적용)
+  @Column({ name: 'current_step', type: 'text', nullable: true })
+  currentStep?: string | null;
 
   // 오류 정보
   @Column({ name: 'error_message', type: 'text', nullable: true })

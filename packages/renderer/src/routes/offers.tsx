@@ -23,6 +23,7 @@ function OffersPage() {
   const [rowSelection, setRowSelection] = useState({});
   const [expanded, setExpanded] = useState({});
   const [modifiedPrices, setModifiedPrices] = useState<Record<number, { price?: string; rent?: string; floorExposure?: boolean }>>({});
+  const [shouldReAdvertise, setShouldReAdvertise] = useState<Record<number, boolean>>({});
   const [filterExpanded, setFilterExpanded] = useState(true);
   const [showOnlySelected, setShowOnlySelected] = useState(false);
 
@@ -166,6 +167,13 @@ function OffersPage() {
     });
   }, []);
 
+  const handleReAdvertiseToggle = useCallback((offerId: number, checked: boolean) => {
+    setShouldReAdvertise(prev => ({
+      ...prev,
+      [offerId]: checked,
+    }));
+  }, []);
+
   const handleOwnerInfoClick = useCallback((propertyName: string, dong: string | null, ho: string | null) => {
     setSelectedProperty({ name: propertyName, dong, ho });
     setIsOwnerDialogOpen(true);
@@ -257,6 +265,48 @@ function OffersPage() {
         return;
       }
 
+      // 거래완료 매물 체크
+      const selectedOffers = offers.filter(o => selectedOfferIds.includes(o.id));
+      const completedOffers = selectedOffers.filter(o => o.adStatus === '거래완료');
+
+      if (completedOffers.length > 0) {
+        const completedNames = completedOffers.map(o => o.name).join(', ');
+        const confirm = window.confirm(
+          `⚠️ 거래완료된 매물이 ${completedOffers.length}건 포함되어 있습니다.\n\n` +
+          `거래완료 매물: ${completedNames}\n\n` +
+          `거래완료된 매물은 가격 변경 및 재광고가 불가능합니다.\n계속하시겠습니까?`
+        );
+        if (!confirm) {
+          return;
+        }
+      }
+
+      // (신)홍보확인서 매물의 서류 체크 (선택된 매물 중에서만)
+      const newVerificationOffers = selectedOffers.filter(o => o.adMethod?.includes('(신)홍보확인서'));
+      if (newVerificationOffers.length > 0) {
+        const offersWithoutDocs: string[] = [];
+
+        for (const offer of newVerificationOffers) {
+          const key = `${offer.name}|${offer.dong || ''}|${offer.ho || ''}`;
+          const ownerInfo = ownerInfoMap.get(key);
+
+          // 서류 파일이 없으면 추가
+          if (!ownerInfo?.filePaths?.document) {
+            offersWithoutDocs.push(`${offer.name} ${offer.dong ? `${offer.dong}동` : ''} ${offer.ho ? `${offer.ho}호` : ''}`.trim());
+          }
+        }
+
+        if (offersWithoutDocs.length > 0) {
+          alert(
+            `⚠️ (신)홍보확인서 매물 중 서류가 없는 매물이 있습니다.\n\n` +
+            `서류 미등록 매물:\n${offersWithoutDocs.map(n => `• ${n}`).join('\n')}\n\n` +
+            `(신)홍보확인서 매물은 반드시 서류(분양계약서/사업자등록증)가 필요합니다.\n` +
+            `해당 매물의 소유자 정보에서 서류를 먼저 업로드해주세요.`
+          );
+          return;
+        }
+      }
+
       // 스케줄 설정 검증
       if (scheduleEnabled) {
         if (!scheduleDate || !scheduleTime) {
@@ -290,6 +340,7 @@ function OffersPage() {
         name: batchName,
         offerIds,
         modifiedPrices,
+        shouldReAdvertise,
         scheduledAt: scheduledAt?.toISOString(),
       });
 
@@ -300,6 +351,7 @@ function OffersPage() {
         alert(message);
         setRowSelection({});
         setModifiedPrices({});
+        setShouldReAdvertise({});
         setScheduleEnabled(false);
         setScheduleDate('');
         setScheduleTime('');
@@ -330,6 +382,7 @@ function OffersPage() {
         setOffers([]);
         setRowSelection({});
         setModifiedPrices({});
+        setShouldReAdvertise({});
       } else {
         alert('삭제 실패: ' + response.error);
       }
@@ -441,7 +494,7 @@ function OffersPage() {
   }, [offers]);
 
   // 컬럼 정의
-  const columns = useOfferColumns(handlePriceChange);
+  const columns = useOfferColumns(handlePriceChange, shouldReAdvertise, handleReAdvertiseToggle);
 
   const table = useReactTable<Offer>({
     data: filteredOffers,
@@ -919,10 +972,18 @@ function OffersPage() {
                 table.getRowModel().rows.map(row => {
                   const isExpanded = row.getIsExpanded();
                   const analysisData = row.original.rankingAnalysis;
+                  const isCompleted = row.original.adStatus === '거래완료';
 
                   return (
                     <>
-                      <tr key={row.id} className="hover:bg-blue-50/50 transition-colors">
+                      <tr
+                        key={row.id}
+                        className={`transition-colors ${
+                          isCompleted
+                            ? 'bg-red-200 hover:bg-red-300'
+                            : 'hover:bg-blue-50/50'
+                        }`}
+                      >
                         {row.getVisibleCells().map(cell => (
                           <td key={cell.id} className="px-6 py-4 text-sm text-gray-900">
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}

@@ -2,9 +2,12 @@ import type { Page } from 'playwright';
 import type { AipartnerOffer } from '../../types/index.js';
 import { PropertyOwnerRepository } from '../../repositories/PropertyOwnerRepository.js';
 import { FileStorageService } from '../FileStorageService.js';
+import { RE_ADVERTISE_STEPS, type ReAdvertiseStep } from '../batch/BatchService.js';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+
+export type StepProgressCallback = (step: ReAdvertiseStep) => void;
 
 /**
  * 광고 내리기 스크래퍼
@@ -107,10 +110,18 @@ export class AdRemoveScraper {
    */
   async removeAd(
     page: Page,
-    offer: AipartnerOffer
+    offer: AipartnerOffer,
+    onStepProgress?: StepProgressCallback
   ): Promise<{ success: boolean; error?: string }> {
     try {
       console.log(`🔽 광고 내리기 시작: ${offer.name} (numberN: ${offer.numberN})`);
+
+      // 단계 진행 알림 헬퍼
+      const reportStep = (step: ReAdvertiseStep) => {
+        if (onStepProgress) {
+          onStepProgress(step);
+        }
+      };
 
       // 1. 광고 관리 페이지는 이미 로그인 시 이동했으므로 생략
       // 현재 페이지가 광고 리스트 페이지인지 확인
@@ -145,6 +156,8 @@ export class AdRemoveScraper {
       let maxPages = 20; // 최대 20페이지까지만 검색
       let currentPage = 0;
 
+      reportStep(RE_ADVERTISE_STEPS.SEARCHING);
+
       while (!isFound && currentPage < maxPages) {
         currentPage++;
         console.log(`📄 페이지 ${currentPage} 검색 중...`);
@@ -168,6 +181,7 @@ export class AdRemoveScraper {
           if (cleanedNumber === offer.numberN) {
             console.log(`✅ 매물 발견: ${cleanedNumber}`);
             console.log(`📋 "바로 재광고" 모드 사용 (가격은 이미 수정된 상태)`);
+            reportStep(RE_ADVERTISE_STEPS.FOUND);
 
             // 재광고 버튼 찾기 및 클릭
             const reAdButton = row.locator('.management.GTM_offerings_ad_list_rocket_add.btn-re-ad-pop');
@@ -177,6 +191,7 @@ export class AdRemoveScraper {
             }
 
             console.log('🔘 재광고 버튼 클릭 중...');
+            reportStep(RE_ADVERTISE_STEPS.CLICKING_READD);
             await reAdButton.click();
             await this.delay(1000);
 
@@ -184,11 +199,13 @@ export class AdRemoveScraper {
             console.log('⏳ 재광고 선택 팝업 (1차) 대기 중...');
             await page.waitForSelector('.wrap-pop-tooltip.pop-re-ad.active', { timeout: 5000 });
             console.log('✅ 재광고 선택 팝업 (1차) 나타남');
+            reportStep(RE_ADVERTISE_STEPS.POPUP_OPENED);
 
             await this.delay(500);
 
             // 활성화된 팝업 안에서 "바로 재광고" 라디오 버튼 선택
             console.log('🔘 "바로 재광고" 라디오 버튼 선택 중...');
+            reportStep(RE_ADVERTISE_STEPS.SELECTING_DIRECT);
             const activePopup = page.locator('.wrap-pop-tooltip.pop-re-ad.active');
             const directReAdRadio = activePopup.locator('.radio-check.naverReAd input[type="radio"]#reAd2');
 
@@ -204,6 +221,7 @@ export class AdRemoveScraper {
             console.log('⏳ 재광고 안내 팝업 (2차) 대기 중...');
             await page.waitForSelector('.SYlayerPopupWrap.monitoring-regist-pop', { timeout: 5000 });
             console.log('✅ 재광고 안내 팝업 (2차) 나타남');
+            reportStep(RE_ADVERTISE_STEPS.CONSENT_POPUP);
 
             await this.delay(1000);
 
@@ -274,16 +292,19 @@ export class AdRemoveScraper {
 
             // verification 페이지로 바로 이동
             console.log('⏳ verification 페이지 이동 대기 중...');
+            reportStep(RE_ADVERTISE_STEPS.CONFIRMING);
             await page.waitForFunction(
               () => location.href.includes('/offerings/verification/'),
               { timeout: 60000, polling: 500 }
             );
             console.log('✅ verification 페이지 이동 완료');
+            reportStep(RE_ADVERTISE_STEPS.VERIFICATION_PAGE);
             await this.delay(2000);
 
             // (구)홍보확인서인 경우 전자 홍보확인서 작성 버튼 클릭
             if (offer.adMethod && offer.adMethod.includes('(구)홍보확인서')) {
               console.log('📎 (구)홍보확인서 - 전자 홍보확인서 작성 시작...');
+              reportStep(RE_ADVERTISE_STEPS.DRAWING_SIGNATURE);
 
               try {
                 // 1. 전자 홍보확인서 작성하기 버튼 클릭 (팝업 열기)
@@ -355,6 +376,7 @@ export class AdRemoveScraper {
             // (신)홍보확인서인 경우 파일 업로드
             if (offer.adMethod && offer.adMethod.includes('(신)홍보확인서')) {
               console.log('📎 (신)홍보확인서 파일 업로드 시작...');
+              reportStep(RE_ADVERTISE_STEPS.UPLOADING_FILES);
 
               try {
                 // 1. PropertyOwnerRepository에서 파일 경로 조회
@@ -376,19 +398,29 @@ export class AdRemoveScraper {
                   console.log('📄 분양계약서/사업자등록증 다운로드 중...');
                   const localPath = path.join(tempDir, `document_${Date.now()}${path.extname(propertyInfo.document_file_path)}`);
                   await this.fileStorageService.downloadFile(propertyInfo.document_file_path, localPath);
+                  console.log(`✅ 다운로드 완료: ${localPath}`);
 
-                  // 라디오 버튼 선택 (fileReferenceFileType11)
-                  const documentRadio = page.locator('label[for="fileReferenceFileType11"]');
-                  if (await documentRadio.count() > 0) {
-                    await documentRadio.click();
-                    await this.delay(300);
+                  // 파일첨부 라벨 클릭하여 파일 선택 다이얼로그 열기 + 파일 설정
+                  console.log('📎 파일첨부 버튼 클릭 및 파일 설정 중...');
+                  const fileLabel = page.locator('label[for="fileReferenceFileUrl1"]');
+
+                  if (await fileLabel.count() === 0) {
+                    throw new Error('파일첨부 라벨을 찾을 수 없습니다 (fileReferenceFileUrl1)');
                   }
 
-                  // 파일 업로드
-                  const documentInput = page.locator('input#fileReferenceFileUrl1');
-                  await documentInput.setInputFiles(localPath);
+                  // filechooser 이벤트 대기하면서 라벨 클릭
+                  const [fileChooser] = await Promise.all([
+                    page.waitForEvent('filechooser', { timeout: 5000 }),
+                    fileLabel.click(),
+                  ]);
+
+                  // 파일 선택
+                  await fileChooser.setFiles(localPath);
                   console.log('✅ 분양계약서/사업자등록증 업로드 완료');
                   uploadedFiles.push(localPath);
+                  await this.delay(500);
+                } else {
+                  throw new Error('분양계약서/사업자등록증 파일이 없습니다. 소유자 정보에서 파일을 먼저 업로드해주세요.');
                 }
 
                 // 3. 위임장 (power_of_attorney_file_path) - 선택
@@ -397,18 +429,21 @@ export class AdRemoveScraper {
                   const localPath = path.join(tempDir, `power_of_attorney_${Date.now()}${path.extname(propertyInfo.power_of_attorney_file_path)}`);
                   await this.fileStorageService.downloadFile(propertyInfo.power_of_attorney_file_path, localPath);
 
-                  // 라디오 버튼 선택 (fileReferenceFileType21)
-                  const poaRadio = page.locator('label[for="fileReferenceFileType21"]');
-                  if (await poaRadio.count() > 0) {
-                    await poaRadio.click();
-                    await this.delay(300);
-                  }
+                  // 파일첨부 라벨 클릭하여 파일 선택 다이얼로그 열기 + 파일 설정
+                  console.log('📎 위임장 파일첨부 버튼 클릭 및 파일 설정 중...');
+                  const fileLabel = page.locator('label[for="fileReferenceFileUrl2"]');
 
-                  // 파일 업로드
-                  const poaInput = page.locator('input#fileReferenceFileUrl2');
-                  await poaInput.setInputFiles(localPath);
+                  // filechooser 이벤트 대기하면서 라벨 클릭
+                  const [fileChooser] = await Promise.all([
+                    page.waitForEvent('filechooser', { timeout: 5000 }),
+                    fileLabel.click(),
+                  ]);
+
+                  // 파일 선택
+                  await fileChooser.setFiles(localPath);
                   console.log('✅ 위임장 업로드 완료');
                   uploadedFiles.push(localPath);
+                  await this.delay(500);
                 }
 
                 console.log('✅ (신)홍보확인서 파일 업로드 완료');
@@ -428,18 +463,22 @@ export class AdRemoveScraper {
             }
 
             // 이후 공통 프로세스 (verification 페이지에서 진행)
-            // consentMobile2 체크박스 클릭
-            console.log('☑️  consentMobile2 체크박스 대기 중...');
-            await page.waitForSelector('label[for="consentMobile2"]', { timeout: 10000 });
+            // consentMobile2 체크박스 클릭 - (신)홍보확인서는 제외
+            if (!offer.adMethod || !offer.adMethod.includes('(신)홍보확인서')) {
+              console.log('☑️  consentMobile2 체크박스 대기 중...');
+              await page.waitForSelector('label[for="consentMobile2"]', { timeout: 10000 });
 
-            const consentLabel = page.locator('label[for="consentMobile2"]');
-            if (await consentLabel.count() > 0) {
-              await consentLabel.scrollIntoViewIfNeeded();
-              await this.delay(500);
-              await consentLabel.click();
-              console.log('✅ consentMobile2 클릭 완료');
+              const consentLabel = page.locator('label[for="consentMobile2"]');
+              if (await consentLabel.count() > 0) {
+                await consentLabel.scrollIntoViewIfNeeded();
+                await this.delay(500);
+                await consentLabel.click();
+                console.log('✅ consentMobile2 클릭 완료');
+              } else {
+                throw new Error('consentMobile2 버튼을 찾을 수 없습니다');
+              }
             } else {
-              throw new Error('consentMobile2 버튼을 찾을 수 없습니다');
+              console.log('ℹ️  (신)홍보확인서 - consentMobile2 체크 건너뜀');
             }
 
             // payMsg 요소로 스크롤
@@ -451,6 +490,7 @@ export class AdRemoveScraper {
 
             // naverSendSave 버튼 클릭
             console.log('💾 naverSendSave 버튼 대기 중...');
+            reportStep(RE_ADVERTISE_STEPS.SAVING);
             await page.waitForSelector('#naverSendSave', { timeout: 10000 });
 
             const naverSaveBtn = page.locator('#naverSendSave');
@@ -506,10 +546,12 @@ export class AdRemoveScraper {
               { timeout: 60000, polling: 500 }
             );
             console.log('🟢 verify 페이지로 이동 완료');
+            reportStep(RE_ADVERTISE_STEPS.VERIFY_PAGE);
 
             await this.delay(2000);
 
             // 취소 버튼 클릭해서 ad_list로 돌아가기
+            reportStep(RE_ADVERTISE_STEPS.RETURNING);
             await page.waitForSelector('#btnCancel');
             const cancelBtn = page.locator('#btnCancel');
             await cancelBtn.scrollIntoViewIfNeeded();
@@ -533,6 +575,7 @@ export class AdRemoveScraper {
             }
 
             console.log(`✅ 재광고 완료: ${offer.name}`);
+            reportStep(RE_ADVERTISE_STEPS.COMPLETED);
             isFound = true;
             break;
           }

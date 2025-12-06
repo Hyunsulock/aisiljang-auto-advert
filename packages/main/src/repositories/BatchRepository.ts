@@ -160,9 +160,17 @@ export class BatchRepository {
         status: 'pending',
         reAdvertiseStatus: 'pending',
         errorMessage: null,
+        currentStep: null,
         reAdvertiseStartedAt: null,
         reAdvertiseCompletedAt: null,
       }
     );
+  }
+
+  /**
+   * 배치 아이템의 현재 단계 업데이트
+   */
+  async updateItemStep(itemId: number, step: string): Promise<void> {
+    await this.itemRepo.update({ id: itemId }, { currentStep: step });
   }
 }

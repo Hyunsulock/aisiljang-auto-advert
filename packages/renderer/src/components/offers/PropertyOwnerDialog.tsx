@@ -176,16 +176,16 @@ export function PropertyOwnerDialog({
       }
 
       let storageFilePath: string | undefined;
-      let fileName: string;
+      let baseFileName: string;
 
       switch (fileType) {
         case 'document':
           storageFilePath = ownerInfo.filePaths.document;
-          fileName = '서류.pdf';
+          baseFileName = '서류';
           break;
         case 'powerOfAttorney':
           storageFilePath = ownerInfo.filePaths.powerOfAttorney;
-          fileName = '위임장.pdf';
+          baseFileName = '위임장';
           break;
       }
 
@@ -193,6 +193,10 @@ export function PropertyOwnerDialog({
         alert('파일 경로를 찾을 수 없습니다');
         return;
       }
+
+      // Storage 경로에서 실제 확장자 추출
+      const ext = storageFilePath.substring(storageFilePath.lastIndexOf('.')) || '.pdf';
+      const fileName = `${baseFileName}${ext}`;
 
       const result = await (window as any).propertyOwner.downloadFile(storageFilePath, fileName);
 

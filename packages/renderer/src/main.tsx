@@ -13,6 +13,7 @@ import CrawlerTest from './routes/crawler-test.tsx'
 import HomePage from './routes/index.tsx'
 import OffersPage from './routes/offers.tsx'
 import BatchesPage from './routes/batches.tsx'
+import BatchDetailPage from './routes/batch-detail.tsx'
 import SettingsPage from './routes/settings.tsx'
 
 import { AppSidebar } from './components/AppSidebar'
@@ -186,6 +187,7 @@ const routeTree = rootRoute.addChildren([
   HomePage(rootRoute),
   OffersPage(rootRoute),
   BatchesPage(rootRoute),
+  BatchDetailPage(rootRoute),
   SettingsPage(rootRoute),
   CrawlerTest(rootRoute),
 ])

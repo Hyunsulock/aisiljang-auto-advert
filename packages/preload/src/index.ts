@@ -82,6 +82,8 @@ const adTest = {
     ipcRenderer.invoke('adTest:removeAd', numberN),
   modifyPrice: (params: { numberN: string; modifiedPrice?: string; modifiedRent?: string }) =>
     ipcRenderer.invoke('adTest:modifyPrice', params),
+  testNewVerification: (params: { name: string; dong?: string; ho?: string }) =>
+    ipcRenderer.invoke('adTest:testNewVerification', params),
 };
 
 // Property Owner API

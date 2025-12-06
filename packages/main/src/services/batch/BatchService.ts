@@ -9,8 +9,49 @@ export interface CreateBatchRequest {
   name: string;
   offerIds: number[];
   modifiedPrices?: Record<number, { price?: string; rent?: string; floorExposure?: boolean }>;
+  shouldReAdvertise?: Record<number, boolean>; // 각 매물의 재광고 여부 (기본값: true)
   scheduledAt?: string; // ISO 8601 형식의 날짜/시간 문자열
 }
+
+// 재광고 단계 정의
+export const RE_ADVERTISE_STEPS = {
+  SEARCHING: 'searching',           // 매물 검색 중
+  FOUND: 'found',                   // 매물 발견
+  CLICKING_READD: 'clicking_readd', // 재광고 버튼 클릭
+  POPUP_OPENED: 'popup_opened',     // 1차 팝업 열림
+  SELECTING_DIRECT: 'selecting_direct', // 바로 재광고 선택
+  CONSENT_POPUP: 'consent_popup',   // 2차 동의 팝업
+  CONFIRMING: 'confirming',         // 확인 중
+  VERIFICATION_PAGE: 'verification_page', // verification 페이지
+  UPLOADING_FILES: 'uploading_files', // 파일 업로드 중 (신홍보확인서)
+  DRAWING_SIGNATURE: 'drawing_signature', // 전자서명 중 (구홍보확인서)
+  SAVING: 'saving',                 // 저장 중
+  VERIFY_PAGE: 'verify_page',       // verify 페이지
+  RETURNING: 'returning',           // ad_list로 복귀 중
+  COMPLETED: 'completed',           // 완료
+  FAILED: 'failed',                 // 실패
+} as const;
+
+export type ReAdvertiseStep = typeof RE_ADVERTISE_STEPS[keyof typeof RE_ADVERTISE_STEPS];
+
+// 단계별 한글 라벨
+export const STEP_LABELS: Record<string, string> = {
+  [RE_ADVERTISE_STEPS.SEARCHING]: '매물 검색 중',
+  [RE_ADVERTISE_STEPS.FOUND]: '매물 발견',
+  [RE_ADVERTISE_STEPS.CLICKING_READD]: '재광고 버튼 클릭',
+  [RE_ADVERTISE_STEPS.POPUP_OPENED]: '팝업 열림',
+  [RE_ADVERTISE_STEPS.SELECTING_DIRECT]: '바로 재광고 선택',
+  [RE_ADVERTISE_STEPS.CONSENT_POPUP]: '동의 팝업',
+  [RE_ADVERTISE_STEPS.CONFIRMING]: '확인 중',
+  [RE_ADVERTISE_STEPS.VERIFICATION_PAGE]: '검증 페이지 이동',
+  [RE_ADVERTISE_STEPS.UPLOADING_FILES]: '파일 업로드 중',
+  [RE_ADVERTISE_STEPS.DRAWING_SIGNATURE]: '전자서명 중',
+  [RE_ADVERTISE_STEPS.SAVING]: '저장 중',
+  [RE_ADVERTISE_STEPS.VERIFY_PAGE]: '검증 완료 페이지',
+  [RE_ADVERTISE_STEPS.RETURNING]: '목록으로 복귀',
+  [RE_ADVERTISE_STEPS.COMPLETED]: '완료',
+  [RE_ADVERTISE_STEPS.FAILED]: '실패',
+};
 
 export interface BatchProgressUpdate {
   batchId: number;
@@ -21,6 +62,8 @@ export interface BatchProgressUpdate {
   currentItem?: {
     name: string;
     index: number;
+    step?: string;      // 현재 단계
+    stepLabel?: string; // 단계 한글 라벨
   };
 }
 
@@ -67,18 +110,32 @@ export class BatchService {
 
     console.log(`✅ 배치 생성 완료 (ID: ${batch.id})`);
 
-    // 2. 배치 아이템 생성
-    const items = request.offerIds.map(offerId => ({
-      batchId: batch.id,
-      offerId,
-      status: 'pending',
-      modifyStatus: 'pending',
-      reAdvertiseStatus: 'pending',
-      modifiedPrice: request.modifiedPrices?.[offerId]?.price ?? null,
-      modifiedRent: request.modifiedPrices?.[offerId]?.rent ?? null,
-      modifiedFloorExposure: request.modifiedPrices?.[offerId]?.floorExposure ?? null,
-      retryCount: 0,
-    }));
+    // 2. 매물 정보 조회 (스냅샷 저장용)
+    const offers = await this.offerRepo.findByIds(request.offerIds);
+    const offerMap = new Map(offers.map(o => [o.id, o]));
+
+    // 3. 배치 아이템 생성 (매물 정보 스냅샷 포함)
+    const items = request.offerIds.map(offerId => {
+      const offer = offerMap.get(offerId);
+      return {
+        batchId: batch.id,
+        offerId,
+        // 매물 정보 스냅샷
+        offerName: offer?.name ?? null,
+        offerDong: offer?.dong ?? null,
+        offerHo: offer?.ho ?? null,
+        offerDealType: offer?.dealType ?? null,
+        // 작업 상태
+        status: 'pending',
+        modifyStatus: 'pending',
+        reAdvertiseStatus: 'pending',
+        modifiedPrice: request.modifiedPrices?.[offerId]?.price ?? null,
+        modifiedRent: request.modifiedPrices?.[offerId]?.rent ?? null,
+        modifiedFloorExposure: request.modifiedPrices?.[offerId]?.floorExposure ?? null,
+        shouldReAdvertise: request.shouldReAdvertise?.[offerId] ?? true, // 기본값: true (재광고 함)
+        retryCount: 0,
+      };
+    });
 
     await this.batchRepo.createItems(items);
     console.log(`✅ ${items.length}개의 배치 아이템 생성 완료`);
@@ -104,9 +161,20 @@ export class BatchService {
 
     const items = await this.batchRepo.findItemsByBatchId(batchId);
 
+    // 매물 정보 조회
+    const offerIds = items.map(item => item.offerId);
+    const offers = await this.offerRepo.findByIds(offerIds);
+    const offerMap = new Map(offers.map(o => [o.id, o]));
+
+    // items에 offer 정보 추가
+    const itemsWithOffer = items.map(item => ({
+      ...item,
+      offer: offerMap.get(item.offerId) || null,
+    }));
+
     return {
-      batch,
-      items,
+      ...batch,
+      items: itemsWithOffer,
     };
   }
 
@@ -292,8 +360,69 @@ export class BatchService {
         console.log(`\n💰 [1단계] 가격 수정할 매물 없음\n`);
       }
 
-      // 4. 2단계: 모든 매물의 재광고 작업 일괄 실행
-      console.log(`🔄 [2단계] 재광고 시작: ${offers.length}건`);
+      // 4. 2단계: 재광고할 매물만 필터링하여 재광고 작업 실행
+      const offersToReAdvertise = [];
+      for (const item of batchItems) {
+        // shouldReAdvertise가 true인 매물만 재광고
+        if (item.shouldReAdvertise) {
+          const dbOffer = dbOffers.find(o => o.id === item.offerId);
+          if (dbOffer) {
+            offersToReAdvertise.push({
+              numberN: dbOffer.numberN,
+              numberA: dbOffer.numberA,
+              type: dbOffer.type,
+              name: dbOffer.name,
+              dong: dbOffer.dong ?? null,
+              ho: dbOffer.ho ?? null,
+              address: dbOffer.address,
+              areaPublic: dbOffer.areaPublic ?? null,
+              areaPrivate: dbOffer.areaPrivate ?? null,
+              areaPyeong: dbOffer.areaPyeong ?? null,
+              dealType: dbOffer.dealType,
+              price: dbOffer.price,
+              rent: dbOffer.rent ?? null,
+              adChannel: dbOffer.adChannel ?? null,
+              adMethod: dbOffer.adMethod ?? null,
+              adStatus: dbOffer.adStatus,
+              adStartDate: dbOffer.adStartDate ?? null,
+              adEndDate: dbOffer.adEndDate ?? null,
+              dateRange: dbOffer.dateRange || '',
+              ranking: dbOffer.ranking ?? null,
+              sharedRank: dbOffer.sharedRank ?? null,
+              isShared: dbOffer.isShared ?? null,
+              sharedCount: dbOffer.sharedCount ?? null,
+              total: dbOffer.total ?? null,
+            });
+          }
+        } else {
+          // 재광고 건너뛴 항목은 completed로 처리
+          const dbOffer = dbOffers.find(o => o.id === item.offerId);
+          console.log(`⏭️  재광고 건너뛰기 (정보만 수정): ${dbOffer?.name || item.offerId}`);
+          await this.batchRepo.updateItemReAdvertiseStatus(item.id, 'skipped');
+          await this.batchRepo.updateItemStatus(item.id, 'completed');
+        }
+      }
+
+      console.log(`🔄 [2단계] 재광고 시작: ${offersToReAdvertise.length}건 (전체 ${offers.length}건 중)`);
+
+      if (offersToReAdvertise.length === 0) {
+        console.log('⏭️  재광고할 매물이 없습니다 (모두 정보만 수정)');
+
+        // 모두 건너뛴 경우에도 배치 완료 처리
+        await this.batchRepo.updateStatus(batchId, 'completed');
+        await this.batchRepo.markCompleted(batchId);
+        await browser.close();
+
+        return {
+          success: true,
+          message: '배치 실행 완료: 모든 매물이 정보만 수정되었습니다',
+          results: {
+            completed: batchItems.filter(i => !i.shouldReAdvertise).length,
+            failed: 0,
+          },
+        };
+      }
+
       await this.batchRepo.updateStatus(batchId, 'readvertising');
 
       progressCallback?.({
@@ -305,45 +434,88 @@ export class BatchService {
       });
 
       const adRemoveScraper = new AdRemoveScraper();
-      let completedCount = 0;
+      let completedCount = batchItems.filter(i => !i.shouldReAdvertise).length; // 건너뛴 항목도 카운트
       let failedCount = 0;
 
-      const results = await adRemoveScraper.removeAdsInBatch(
-        page,
-        offers,
-        async (current: number, total: number, offer: any, result: { success: boolean; error?: string }) => {
-          console.log(`[${current}/${total}] ${offer.name}: ${result.success ? '✅ 성공' : '❌ 실패'}`);
+      // 각 매물 순차 처리 (단계별 콜백 지원)
+      const results: Array<{ offer: any; success: boolean; error?: string }> = [];
 
-          const matchingOffer = dbOffers.find(o => o.numberN === offer.numberN);
-          const batchItem = matchingOffer ? batchItems.find(item => item.offerId === matchingOffer.id) : undefined;
+      for (let i = 0; i < offersToReAdvertise.length; i++) {
+        const offer = offersToReAdvertise[i];
+        const current = i + 1;
+        const total = offersToReAdvertise.length;
 
+        console.log(`\n[${current}/${total}] 처리 중: ${offer.name}`);
+
+        const matchingOffer = dbOffers.find(o => o.numberN === offer.numberN);
+        const batchItem = matchingOffer ? batchItems.find(item => item.offerId === matchingOffer.id) : undefined;
+
+        // 단계별 콜백 설정
+        const onStepProgress = async (step: ReAdvertiseStep) => {
           if (batchItem) {
-            if (result.success) {
-              completedCount++;
-              await this.batchRepo.updateItemReAdvertiseStatus(batchItem.id, 'completed');
-              await this.batchRepo.updateItemStatus(batchItem.id, 'completed');
-            } else {
-              failedCount++;
-              await this.batchRepo.updateItemReAdvertiseStatus(batchItem.id, 'failed');
-              await this.batchRepo.updateItemStatus(batchItem.id, 'failed', result.error);
-            }
-
-            await this.batchRepo.updateProgress(batchId, completedCount, failedCount);
-
-            progressCallback?.({
-              batchId,
-              status: 'readvertising',
-              totalCount: total,
-              completedCount,
-              failedCount,
-              currentItem: {
-                name: offer.name,
-                index: current,
-              },
-            });
+            // 아이템의 currentStep 업데이트
+            await this.batchRepo.updateItemStep(batchItem.id, step);
           }
+
+          // 실시간 진행 상태 전송
+          progressCallback?.({
+            batchId,
+            status: 'readvertising',
+            totalCount: total,
+            completedCount,
+            failedCount,
+            currentItem: {
+              name: offer.name,
+              index: current,
+              step,
+              stepLabel: STEP_LABELS[step],
+            },
+          });
+        };
+
+        // 재광고 실행
+        const result = await adRemoveScraper.removeAd(page, offer, onStepProgress);
+        results.push({ offer, ...result });
+
+        console.log(`[${current}/${total}] ${offer.name}: ${result.success ? '✅ 성공' : '❌ 실패'}`);
+
+        if (batchItem) {
+          if (result.success) {
+            completedCount++;
+            await this.batchRepo.updateItemReAdvertiseStatus(batchItem.id, 'completed');
+            await this.batchRepo.updateItemStatus(batchItem.id, 'completed');
+            await this.batchRepo.updateItemStep(batchItem.id, 'completed');
+          } else {
+            failedCount++;
+            await this.batchRepo.updateItemReAdvertiseStatus(batchItem.id, 'failed');
+            await this.batchRepo.updateItemStatus(batchItem.id, 'failed', result.error);
+            await this.batchRepo.updateItemStep(batchItem.id, 'failed');
+          }
+
+          await this.batchRepo.updateProgress(batchId, completedCount, failedCount);
+
+          progressCallback?.({
+            batchId,
+            status: 'readvertising',
+            totalCount: total,
+            completedCount,
+            failedCount,
+            currentItem: {
+              name: offer.name,
+              index: current,
+              step: result.success ? 'completed' : 'failed',
+              stepLabel: result.success ? STEP_LABELS['completed'] : STEP_LABELS['failed'],
+            },
+          });
         }
-      );
+
+        // 요청 사이 간격 (서버 부하 방지)
+        if (i < offersToReAdvertise.length - 1) {
+          const delay = 2000 + Math.random() * 1000;
+          console.log(`⏳ ${delay.toFixed(0)}ms 대기 중...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
 
       const successCount = results.filter(r => r.success).length;
       const failCount = results.filter(r => !r.success).length;
@@ -523,49 +695,94 @@ export class BatchService {
         }
       }
 
-      const results = await adRemoveScraper.removeAdsInBatch(
-        page,
-        offers,
-        async (current: number, total: number, offer: any, result: { success: boolean; error?: string }) => {
-          console.log(`[${current}/${total}] ${offer.name}: ${result.success ? '✅ 성공' : '❌ 실패'}`);
+      // 각 매물 순차 처리 (단계별 콜백 지원)
+      const results: Array<{ offer: any; success: boolean; error?: string }> = [];
 
-          // 배치 아이템 상태 업데이트
-          const matchingOffer = dbOffers.find(o => o.numberN === offer.numberN);
-          const batchItem = matchingOffer ? failedItems.find(item => item.offerId === matchingOffer.id) : undefined;
+      for (let i = 0; i < offers.length; i++) {
+        const offer = offers[i];
+        const current = i + 1;
+        const total = offers.length;
 
+        console.log(`\n[${current}/${total}] 재시도 중: ${offer.name}`);
+
+        const matchingOffer = dbOffers.find(o => o.numberN === offer.numberN);
+        const batchItem = matchingOffer ? failedItems.find(item => item.offerId === matchingOffer.id) : undefined;
+
+        // 단계별 콜백 설정
+        const onStepProgress = async (step: ReAdvertiseStep) => {
           if (batchItem) {
-            if (result.success) {
-              successCount++;
-              await this.batchRepo.updateItemModifyStatus(batchItem.id, 'completed');
-              await this.batchRepo.updateItemReAdvertiseStatus(batchItem.id, 'completed');
-              await this.batchRepo.updateItemStatus(batchItem.id, 'completed');
-            } else {
-              newFailCount++;
-              await this.batchRepo.updateItemModifyStatus(batchItem.id, 'failed');
-              await this.batchRepo.updateItemStatus(batchItem.id, 'failed', result.error);
-            }
-
-            // 배치 진행 상황 업데이트
-            const allItems = await this.batchRepo.findItemsByBatchId(batchId);
-            const totalCompleted = allItems.filter((i: any) => i.status === 'completed').length;
-            const totalFailed = allItems.filter((i: any) => i.status === 'failed').length;
-            await this.batchRepo.updateProgress(batchId, totalCompleted, totalFailed);
-
-            // 실시간 진행 상태 전송
-            progressCallback?.({
-              batchId,
-              status: 'readvertising',
-              totalCount: batch.totalCount,
-              completedCount: totalCompleted,
-              failedCount: totalFailed,
-              currentItem: {
-                name: offer.name,
-                index: current,
-              },
-            });
+            await this.batchRepo.updateItemStep(batchItem.id, step);
           }
+
+          // 실시간 진행 상태 전송
+          const allItems = await this.batchRepo.findItemsByBatchId(batchId);
+          const totalCompleted = allItems.filter((i: any) => i.status === 'completed').length;
+          const totalFailed = allItems.filter((i: any) => i.status === 'failed').length;
+
+          progressCallback?.({
+            batchId,
+            status: 'readvertising',
+            totalCount: batch.totalCount,
+            completedCount: totalCompleted,
+            failedCount: totalFailed,
+            currentItem: {
+              name: offer.name,
+              index: current,
+              step,
+              stepLabel: STEP_LABELS[step],
+            },
+          });
+        };
+
+        // 재광고 실행
+        const result = await adRemoveScraper.removeAd(page, offer, onStepProgress);
+        results.push({ offer, ...result });
+
+        console.log(`[${current}/${total}] ${offer.name}: ${result.success ? '✅ 성공' : '❌ 실패'}`);
+
+        if (batchItem) {
+          if (result.success) {
+            successCount++;
+            await this.batchRepo.updateItemModifyStatus(batchItem.id, 'completed');
+            await this.batchRepo.updateItemReAdvertiseStatus(batchItem.id, 'completed');
+            await this.batchRepo.updateItemStatus(batchItem.id, 'completed');
+            await this.batchRepo.updateItemStep(batchItem.id, 'completed');
+          } else {
+            newFailCount++;
+            await this.batchRepo.updateItemModifyStatus(batchItem.id, 'failed');
+            await this.batchRepo.updateItemStatus(batchItem.id, 'failed', result.error);
+            await this.batchRepo.updateItemStep(batchItem.id, 'failed');
+          }
+
+          // 배치 진행 상황 업데이트
+          const allItems = await this.batchRepo.findItemsByBatchId(batchId);
+          const totalCompleted = allItems.filter((i: any) => i.status === 'completed').length;
+          const totalFailed = allItems.filter((i: any) => i.status === 'failed').length;
+          await this.batchRepo.updateProgress(batchId, totalCompleted, totalFailed);
+
+          // 실시간 진행 상태 전송
+          progressCallback?.({
+            batchId,
+            status: 'readvertising',
+            totalCount: batch.totalCount,
+            completedCount: totalCompleted,
+            failedCount: totalFailed,
+            currentItem: {
+              name: offer.name,
+              index: current,
+              step: result.success ? 'completed' : 'failed',
+              stepLabel: result.success ? STEP_LABELS['completed'] : STEP_LABELS['failed'],
+            },
+          });
         }
-      );
+
+        // 요청 사이 간격 (서버 부하 방지)
+        if (i < offers.length - 1) {
+          const delay = 2000 + Math.random() * 1000;
+          console.log(`⏳ ${delay.toFixed(0)}ms 대기 중...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
 
       const retrySuccessCount = results.filter((r: any) => r.success).length;
       const retryFailCount = results.filter((r: any) => !r.success).length;

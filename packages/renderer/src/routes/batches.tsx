@@ -1,8 +1,8 @@
-import { createRoute } from '@tanstack/react-router';
+import { createRoute, useNavigate } from '@tanstack/react-router';
 import type { AnyRootRoute } from '@tanstack/react-router';
 import { Button } from '../components/ui/button';
 import { useState, useEffect } from 'react';
-import { Play, Trash2, RefreshCw, RotateCcw } from 'lucide-react';
+import { Play, Trash2, RefreshCw, RotateCcw, Eye } from 'lucide-react';
 import { batch } from '@app/preload';
 
 interface Batch {
@@ -16,6 +16,13 @@ interface Batch {
   createdAt: Date;
   startedAt: Date | null;
   completedAt: Date | null;
+  // 실시간 진행 정보 (UI 상태용)
+  currentItem?: {
+    name: string;
+    index: number;
+    step?: string;
+    stepLabel?: string;
+  };
 }
 
 export default function createBatchRoute(rootRoute: AnyRootRoute) {
@@ -27,6 +34,7 @@ export default function createBatchRoute(rootRoute: AnyRootRoute) {
 }
 
 function BatchesPage() {
+  const navigate = useNavigate();
   const [batches, setBatches] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -39,15 +47,19 @@ function BatchesPage() {
 
       // 해당 배치의 상태를 실시간으로 업데이트
       setBatches((prevBatches) =>
-        prevBatches.map((batch) =>
-          batch.id === progress.batchId
+        prevBatches.map((b) =>
+          b.id === progress.batchId
             ? {
-                ...batch,
+                ...b,
                 status: progress.status,
                 completedCount: progress.completedCount,
                 failedCount: progress.failedCount,
+                // 완료 상태일 때만 currentItem 초기화 (실패 시에는 마지막 상태 유지)
+                currentItem: progress.status === 'completed'
+                  ? undefined
+                  : progress.currentItem,
               }
-            : batch
+            : b
         )
       );
     });
@@ -168,8 +180,10 @@ function BatchesPage() {
     const statusConfig: Record<string, { label: string; className: string }> = {
       pending: { label: '대기중', className: 'bg-gray-100 text-gray-700' },
       scheduled: { label: '예약됨', className: 'bg-indigo-100 text-indigo-700' },
+      modifying: { label: '가격 수정 중', className: 'bg-orange-100 text-orange-700' },
       removing: { label: '광고 내리는 중', className: 'bg-yellow-100 text-yellow-700' },
       removed: { label: '광고 내리기 완료', className: 'bg-blue-100 text-blue-700' },
+      readvertising: { label: '재광고 중', className: 'bg-purple-100 text-purple-700' },
       uploading: { label: '광고 올리는 중', className: 'bg-purple-100 text-purple-700' },
       completed: { label: '완료', className: 'bg-green-100 text-green-700' },
       failed: { label: '실패', className: 'bg-red-100 text-red-700' },
@@ -240,98 +254,136 @@ function BatchesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {batches.map((batch) => (
-                <tr key={batch.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-medium">
-                    {batch.name}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {getStatusBadge(batch.status)}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-gray-200 rounded-full h-2">
+              {batches.map((batch) => {
+                const progressPercent = batch.totalCount > 0 ? (batch.completedCount / batch.totalCount) * 100 : 0;
+                const isRunning = batch.status === 'modifying' || batch.status === 'removing' || batch.status === 'readvertising' || batch.status === 'uploading';
+
+                return (
+                  <tr key={batch.id} className="hover:bg-gray-50 relative">
+                    {/* 진행률 바 - row 전체 배경 */}
+                    <td colSpan={8} className="absolute inset-0 p-0">
+                      <div className="h-full w-full">
                         <div
-                          className="bg-blue-500 h-2 rounded-full transition-all"
+                          className={`h-full transition-all duration-300 ${
+                            batch.status === 'completed' ? 'bg-green-100' :
+                            batch.status === 'failed' ? 'bg-red-50' :
+                            isRunning ? 'bg-blue-50' : 'bg-transparent'
+                          }`}
                           style={{
-                            width: `${batch.totalCount > 0 ? (batch.completedCount / batch.totalCount) * 100 : 0}%`,
+                            width: isRunning || batch.status === 'completed' || batch.status === 'failed' ? `${progressPercent}%` : '0%',
                           }}
                         />
                       </div>
-                      <span className="text-xs text-gray-600">
-                        {batch.completedCount}/{batch.totalCount}
-                      </span>
-                    </div>
-                    {batch.failedCount > 0 && (
-                      <div className="text-xs text-red-600 mt-1">
-                        실패: {batch.failedCount}건
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {batch.scheduledAt ? (
-                      <span className="text-indigo-600 font-medium">
-                        {formatDate(batch.scheduledAt)}
-                      </span>
-                    ) : (
-                      '-'
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {formatDate(batch.createdAt)}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {formatDate(batch.startedAt)}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {formatDate(batch.completedAt)}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      {(batch.status === 'pending' || batch.status === 'scheduled') && (
-                        <Button
-                          onClick={() => handleExecuteBatch(batch.id)}
-                          disabled={loading}
-                          size="sm"
-                          className="flex items-center gap-1"
-                        >
-                          <Play size={14} />
-                          {batch.status === 'scheduled' ? '즉시 실행' : '실행'}
-                        </Button>
-                      )}
-                      {(batch.status === 'removing' || batch.status === 'uploading') && (
-                        <span className="text-xs text-blue-600 font-medium px-2 py-1">
-                          실행 중...
+                    </td>
+                    {/* 실제 콘텐츠 */}
+                    <td className="px-4 py-3 text-sm font-medium relative z-10">
+                      {batch.name}
+                    </td>
+                    <td className="px-4 py-3 text-sm relative z-10">
+                      {getStatusBadge(batch.status)}
+                    </td>
+                    <td className="px-4 py-3 text-sm relative z-10">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-700">
+                          {batch.completedCount}/{batch.totalCount}
                         </span>
+                        <span className="text-xs text-gray-500">
+                          ({progressPercent.toFixed(0)}%)
+                        </span>
+                      </div>
+                      {batch.failedCount > 0 && (
+                        <div className="text-xs text-red-600 mt-1 font-medium">
+                          실패: {batch.failedCount}건
+                        </div>
                       )}
-                      {(batch.status === 'completed' || batch.status === 'failed') && batch.failedCount > 0 && (
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 relative z-10">
+                      {batch.scheduledAt ? (
+                        <span className="text-indigo-600 font-medium">
+                          {formatDate(batch.scheduledAt)}
+                        </span>
+                      ) : (
+                        '-'
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 relative z-10">
+                      {formatDate(batch.createdAt)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 relative z-10">
+                      {formatDate(batch.startedAt)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 relative z-10">
+                      {formatDate(batch.completedAt)}
+                    </td>
+                    <td className="px-4 py-3 text-sm relative z-10">
+                      <div className="flex items-center gap-2">
                         <Button
-                          onClick={() => handleRetryBatch(batch.id)}
-                          disabled={loading}
+                          onClick={() => navigate({ to: '/batches/$batchId', params: { batchId: String(batch.id) } })}
                           variant="outline"
                           size="sm"
                           className="flex items-center gap-1"
                         >
-                          <RotateCcw size={14} />
-                          재시도 ({batch.failedCount}건)
+                          <Eye size={14} />
+                          상세
                         </Button>
-                      )}
-                      {(batch.status !== 'removing' && batch.status !== 'uploading') && (
-                        <Button
-                          onClick={() => handleDeleteBatch(batch.id)}
-                          disabled={loading}
-                          variant="destructive"
-                          size="sm"
-                          className="flex items-center gap-1"
-                        >
-                          <Trash2 size={14} />
-                          삭제
-                        </Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        {(batch.status === 'pending' || batch.status === 'scheduled') && (
+                          <Button
+                            onClick={() => handleExecuteBatch(batch.id)}
+                            disabled={loading}
+                            size="sm"
+                            className="flex items-center gap-1"
+                          >
+                            <Play size={14} />
+                            {batch.status === 'scheduled' ? '즉시 실행' : '실행'}
+                          </Button>
+                        )}
+                        {isRunning && (
+                          <div className="flex flex-col">
+                            <span className="text-xs text-blue-600 font-medium px-2 py-1 bg-blue-100 rounded inline-block">
+                              {batch.currentItem ? (
+                                <>
+                                  [{batch.currentItem.index}/{batch.totalCount}] {batch.currentItem.name}
+                                  {batch.currentItem.stepLabel && (
+                                    <span className="ml-1 text-purple-600">
+                                      - {batch.currentItem.stepLabel}
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                '실행 중...'
+                              )}
+                            </span>
+                          </div>
+                        )}
+                        {(batch.status === 'completed' || batch.status === 'failed') && batch.failedCount > 0 && (
+                          <Button
+                            onClick={() => handleRetryBatch(batch.id)}
+                            disabled={loading}
+                            variant="outline"
+                            size="sm"
+                            className="flex items-center gap-1"
+                          >
+                            <RotateCcw size={14} />
+                            재시도 ({batch.failedCount}건)
+                          </Button>
+                        )}
+                        {!isRunning && (
+                          <Button
+                            onClick={() => handleDeleteBatch(batch.id)}
+                            disabled={loading}
+                            variant="destructive"
+                            size="sm"
+                            className="flex items-center gap-1"
+                          >
+                            <Trash2 size={14} />
+                            삭제
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -3,6 +3,11 @@ import type { AppModule } from '../AppModule.js';
 import type { ModuleContext } from '../ModuleContext.js';
 import { chromium } from 'playwright';
 import { AipartnerAuthService } from '../services/crawler/AipartnerAuthService.js';
+import { PropertyOwnerRepository } from '../repositories/PropertyOwnerRepository.js';
+import { FileStorageService } from '../services/FileStorageService.js';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import { AdModifyScraper } from '../services/crawler/AdModifyScraper.js';
 
 /**
@@ -283,6 +288,206 @@ export class AdTestModule implements AppModule {
             console.error('브라우저 종료 실패:', closeError);
           }
         }
+
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    /**
+     * (신)홍보확인서 파일 업로드 테스트
+     * - 이실장 로그인 후 ad_list 페이지에서 대기
+     * - 사용자가 수동으로 광고하기 버튼 클릭하여 verification 페이지로 이동
+     * - verification 페이지 감지 시 파일 업로드 테스트 진행
+     * - naverSendSave는 클릭하지 않음 (테스트 모드)
+     */
+    ipcMain.handle('adTest:testNewVerification', async (_event, params: {
+      name: string;
+      dong?: string;
+      ho?: string;
+    }) => {
+      let browser;
+      try {
+        console.log(`📎 (신)홍보확인서 파일 업로드 테스트 시작`);
+        console.log(`   매물: ${params.name} ${params.dong || ''}동 ${params.ho || ''}호`);
+
+        const propertyOwnerRepo = new PropertyOwnerRepository();
+        const fileStorageService = new FileStorageService();
+
+        // 임시 다운로드 디렉토리
+        const tempDir = path.join(os.tmpdir(), 'aisiljang-verification-test');
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+
+        // 1. PropertyOwner 정보 조회
+        console.log('📋 매물 소유자 정보 조회 중...');
+        const propertyInfo = await propertyOwnerRepo.getPropertyByKey({
+          name: params.name,
+          dong: params.dong,
+          ho: params.ho,
+        });
+
+        if (!propertyInfo) {
+          throw new Error(`매물 소유자 정보를 찾을 수 없습니다: ${params.name}`);
+        }
+
+        console.log('✅ 매물 소유자 정보 조회 완료');
+        console.log(`   분양계약서: ${propertyInfo.document_file_path || '없음'}`);
+        console.log(`   위임장: ${propertyInfo.power_of_attorney_file_path || '없음'}`);
+
+        // 2. 브라우저 시작
+        console.log('🌐 브라우저 시작 중...');
+        browser = await chromium.launch({
+          headless: false,
+          channel: 'chrome',
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-blink-features=AutomationControlled',
+          ],
+        });
+
+        const context = await browser.newContext({
+          viewport: { width: 1280, height: 720 },
+          userAgent:
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        });
+
+        const page = await context.newPage();
+
+        // 3. 이실장 로그인
+        console.log('🔐 이실장 로그인 중...');
+        const authService = new AipartnerAuthService();
+        let session;
+
+        try {
+          session = await authService.autoLogin(page);
+          console.log('✅ 자동 로그인 성공');
+        } catch (autoLoginError) {
+          console.log('⚠️  자동 로그인 실패, 수동 로그인으로 전환:', autoLoginError);
+          session = await authService.login(page);
+        }
+
+        if (!session || !session.cookies || session.cookies.length === 0) {
+          throw new Error('이실장 로그인에 실패했습니다');
+        }
+
+        console.log('✅ 로그인 성공');
+
+        // 4. 광고 목록 페이지로 이동
+        console.log('📍 광고 목록 페이지로 이동 중...');
+        await page.goto('https://www.aipartner.com/offerings/ad_list', {
+          waitUntil: 'networkidle',
+          timeout: 30000,
+        });
+        console.log('✅ 광고 목록 페이지 로드 완료');
+        console.log('');
+        console.log('🔔 ========================================');
+        console.log('🔔 지금 수동으로 광고하기 버튼을 클릭해주세요!');
+        console.log('🔔 verification 페이지로 이동하면 자동으로');
+        console.log('🔔 파일 업로드 테스트가 시작됩니다.');
+        console.log('🔔 ========================================');
+        console.log('');
+
+        // 5. verification 페이지 이동 대기 (최대 5분)
+        console.log('⏳ verification 페이지 이동 대기 중... (최대 5분)');
+        await page.waitForFunction(
+          () => location.href.includes('/offerings/verification/'),
+          { timeout: 300000, polling: 1000 }
+        );
+        console.log('✅ verification 페이지 감지!');
+
+        await page.waitForTimeout(2000);
+
+        // 6. 파일 업로드 테스트
+        const uploadedFiles: string[] = [];
+
+        // 분양계약서/사업자등록증 업로드
+        if (propertyInfo.document_file_path) {
+          console.log('📄 분양계약서/사업자등록증 다운로드 중...');
+          const localPath = path.join(tempDir, `document_${Date.now()}${path.extname(propertyInfo.document_file_path)}`);
+          await fileStorageService.downloadFile(propertyInfo.document_file_path, localPath);
+          console.log(`✅ 다운로드 완료: ${localPath}`);
+
+          // 파일첨부 라벨 클릭하여 파일 선택 다이얼로그 열기 + 파일 설정
+          console.log('📎 파일첨부 버튼 클릭 및 파일 설정 중...');
+          const fileLabel = page.locator('label[for="fileReferenceFileUrl1"]');
+
+          if (await fileLabel.count() === 0) {
+            throw new Error('파일첨부 라벨을 찾을 수 없습니다 (fileReferenceFileUrl1)');
+          }
+
+          // filechooser 이벤트 대기하면서 라벨 클릭
+          const [fileChooser] = await Promise.all([
+            page.waitForEvent('filechooser', { timeout: 5000 }),
+            fileLabel.click(),
+          ]);
+
+          // 파일 선택
+          await fileChooser.setFiles(localPath);
+          console.log('✅ 분양계약서/사업자등록증 업로드 완료');
+          uploadedFiles.push(localPath);
+          await page.waitForTimeout(1000);
+        } else {
+          console.log('⚠️  분양계약서/사업자등록증 파일이 없습니다');
+        }
+
+        // 위임장 업로드
+        if (propertyInfo.power_of_attorney_file_path) {
+          console.log('📄 위임장 다운로드 중...');
+          const localPath = path.join(tempDir, `power_of_attorney_${Date.now()}${path.extname(propertyInfo.power_of_attorney_file_path)}`);
+          await fileStorageService.downloadFile(propertyInfo.power_of_attorney_file_path, localPath);
+          console.log(`✅ 다운로드 완료: ${localPath}`);
+
+          // 파일첨부 라벨 클릭하여 파일 선택 다이얼로그 열기 + 파일 설정
+          console.log('📎 위임장 파일첨부 버튼 클릭 및 파일 설정 중...');
+          const fileLabel = page.locator('label[for="fileReferenceFileUrl2"]');
+
+          if (await fileLabel.count() === 0) {
+            console.log('⚠️  위임장 파일첨부 라벨을 찾을 수 없습니다 (fileReferenceFileUrl2)');
+          } else {
+            // filechooser 이벤트 대기하면서 라벨 클릭
+            const [fileChooser] = await Promise.all([
+              page.waitForEvent('filechooser', { timeout: 5000 }),
+              fileLabel.click(),
+            ]);
+
+            // 파일 선택
+            await fileChooser.setFiles(localPath);
+            console.log('✅ 위임장 업로드 완료');
+            uploadedFiles.push(localPath);
+            await page.waitForTimeout(1000);
+          }
+        } else {
+          console.log('ℹ️  위임장 파일이 없습니다 (선택사항)');
+        }
+
+        console.log('');
+        console.log('✅ ========================================');
+        console.log('✅ 파일 업로드 테스트 완료!');
+        console.log('✅ naverSendSave 버튼은 클릭하지 않았습니다.');
+        console.log('✅ 브라우저에서 결과를 확인해주세요.');
+        console.log('✅ ========================================');
+
+        // 임시 파일 정리
+        for (const filePath of uploadedFiles) {
+          try {
+            fs.unlinkSync(filePath);
+            console.log(`🗑️  임시 파일 삭제: ${filePath}`);
+          } catch (err) {
+            console.warn(`⚠️  임시 파일 삭제 실패: ${filePath}`);
+          }
+        }
+
+        return {
+          success: true,
+          message: '(신)홍보확인서 파일 업로드 테스트 완료',
+        };
+      } catch (error) {
+        console.error('❌ (신)홍보확인서 테스트 오류:', error);
 
         return {
           success: false,

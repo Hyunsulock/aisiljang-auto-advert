@@ -54,7 +54,11 @@ export const columnHelper = createColumnHelper<Offer>();
 /**
  * 매물 테이블의 컬럼 정의
  */
-export const useOfferColumns = (handlePriceChange: (offerId: number, field: 'price' | 'rent', value: string) => void) => {
+export const useOfferColumns = (
+  handlePriceChange: (offerId: number, field: 'price' | 'rent', value: string) => void,
+  shouldReAdvertise: Record<number, boolean>,
+  handleReAdvertiseToggle: (offerId: number, checked: boolean) => void
+) => {
   return useMemo(() => [
     columnHelper.display({
       id: 'expander',
@@ -82,14 +86,21 @@ export const useOfferColumns = (handlePriceChange: (offerId: number, field: 'pri
           className="cursor-pointer"
         />
       ),
-      cell: ({ row }) => (
-        <input
-          type="checkbox"
-          checked={row.getIsSelected()}
-          onChange={row.getToggleSelectedHandler()}
-          className="cursor-pointer"
-        />
-      ),
+      cell: ({ row }) => {
+        const isCompleted = row.original.adStatus === '거래완료';
+        return (
+          <div className="flex items-center justify-center">
+            <input
+              type="checkbox"
+              checked={row.getIsSelected()}
+              onChange={row.getToggleSelectedHandler()}
+              disabled={isCompleted}
+              className={`${isCompleted ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+              title={isCompleted ? '거래완료된 매물은 선택할 수 없습니다' : ''}
+            />
+          </div>
+        );
+      },
     }),
     columnHelper.accessor('name', {
       header: '매물명',
@@ -307,6 +318,19 @@ export const useOfferColumns = (handlePriceChange: (offerId: number, field: 'pri
       id: 'ranking',
       header: '랭킹',
       cell: ({ row }) => {
+        const isCompleted = row.original.adStatus === '거래완료';
+
+        // 거래완료인 경우 "완료" 표시
+        if (isCompleted) {
+          return (
+            <div className="flex items-center justify-center">
+              <span className="inline-block px-2 py-1 rounded-md text-xs font-bold bg-red-100 text-red-700">
+                완료
+              </span>
+            </div>
+          );
+        }
+
         const analysis = row.original.rankingAnalysis;
         if (!analysis || analysis.myRanking === null) {
           return <span className="text-gray-400 text-xs">-</span>;
@@ -379,7 +403,29 @@ export const useOfferColumns = (handlePriceChange: (offerId: number, field: 'pri
         );
       },
     }),
-  ], [handlePriceChange]);
+    columnHelper.display({
+      id: 'reAdvertise',
+      header: '재광고',
+      cell: ({ row }) => {
+        const offerId = row.original.id;
+        const isSelected = row.getIsSelected();
+        const isChecked = shouldReAdvertise[offerId] ?? true; // 기본값: true (재광고 함)
+
+        return (
+          <div className="flex justify-center">
+            <input
+              type="checkbox"
+              checked={isChecked}
+              onChange={(e) => handleReAdvertiseToggle(offerId, e.target.checked)}
+              disabled={!isSelected}
+              className={`cursor-pointer ${!isSelected ? 'opacity-50' : ''}`}
+              title={isSelected ? '체크 해제 시 정보만 수정' : '매물을 선택하세요'}
+            />
+          </div>
+        );
+      },
+    }),
+  ], [handlePriceChange, shouldReAdvertise, handleReAdvertiseToggle]);
 };
 
 // Fuzzy filter function for TanStack Table

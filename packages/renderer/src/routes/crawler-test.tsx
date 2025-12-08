@@ -48,6 +48,11 @@ function CrawlerTest() {
   const [verificationResult, setVerificationResult] = useState<any>(null);
   const [verificationError, setVerificationError] = useState('');
 
+  // (구)홍보확인서 테스트용 상태
+  const [isTestingOldVerification, setIsTestingOldVerification] = useState(false);
+  const [oldVerificationResult, setOldVerificationResult] = useState<any>(null);
+  const [oldVerificationError, setOldVerificationError] = useState('');
+
   // 더미 데이터
   const dummyData = {
     myArticle: {
@@ -765,6 +770,71 @@ function CrawlerTest() {
               <p><strong>처리 시간:</strong> {new Date().toLocaleString()}</p>
               {verificationResult.message && (
                 <p><strong>메시지:</strong> {verificationResult.message}</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* (구)홍보확인서 테스트 섹션 */}
+      <div className="space-y-4 mb-8 pb-8 border-b">
+        <h2 className="text-xl font-semibold">✍️ (구)홍보확인서 전자 서명 테스트</h2>
+        <div className="text-sm text-gray-600 mb-4">
+          <p>이실장 사이트에서 (구)홍보확인서 전자 서명 기능을 테스트합니다.</p>
+          <p className="text-blue-600 font-medium mt-1">
+            ℹ️ ad_list 페이지에서 대기 후, 수동으로 (구)홍보확인서 매물의 광고하기 버튼 클릭
+          </p>
+          <p className="text-green-600 font-medium mt-1">
+            ✅ 테스트 모드: 전자 서명만 진행하고 최종 제출은 하지 않습니다
+          </p>
+        </div>
+
+        <Button
+          onClick={async () => {
+            try {
+              setIsTestingOldVerification(true);
+              setOldVerificationError('');
+              setOldVerificationResult(null);
+
+              console.log('✍️ (구)홍보확인서 전자 서명 테스트 시작');
+
+              const response = await (window as any).adTest.testOldVerification();
+
+              if (response.success) {
+                setOldVerificationResult(response);
+                console.log('✅ (구)홍보확인서 테스트 성공:', response);
+              } else {
+                setOldVerificationError(response.error || '테스트 실패');
+                console.error('❌ (구)홍보확인서 테스트 실패:', response);
+              }
+            } catch (err) {
+              const errorMessage = err instanceof Error ? err.message : String(err);
+              setOldVerificationError(errorMessage);
+              console.error('❌ (구)홍보확인서 테스트 오류:', err);
+            } finally {
+              setIsTestingOldVerification(false);
+            }
+          }}
+          disabled={isTestingOldVerification}
+          className="bg-orange-600 hover:bg-orange-700"
+        >
+          {isTestingOldVerification ? '테스트 진행 중...' : '구홍보 테스트 시작'}
+        </Button>
+
+        {oldVerificationError && (
+          <div className="p-4 bg-red-50 rounded-lg text-red-700 border border-red-200">
+            <p className="font-medium">❌ 오류 발생:</p>
+            <p className="mt-1">{oldVerificationError}</p>
+          </div>
+        )}
+
+        {oldVerificationResult && (
+          <div className="border rounded-lg p-4 bg-green-50 border-green-200">
+            <h3 className="font-bold mb-3 text-lg text-green-800">✅ 테스트 완료!</h3>
+            <div className="space-y-2 text-sm">
+              <p><strong>처리 시간:</strong> {new Date().toLocaleString()}</p>
+              {oldVerificationResult.message && (
+                <p><strong>메시지:</strong> {oldVerificationResult.message}</p>
               )}
             </div>
           </div>

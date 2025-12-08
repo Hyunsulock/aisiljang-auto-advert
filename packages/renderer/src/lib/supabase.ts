@@ -79,3 +79,28 @@ export async function getPropertyOwnerInfo(
 
   return resultMap;
 }
+
+/**
+ * Main 프로세스에 현재 세션 전달
+ * IPC를 통해 main 프로세스의 Supabase 클라이언트에 세션 설정
+ */
+export async function syncSessionToMain(): Promise<boolean> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
+      console.warn('No session to sync');
+      return false;
+    }
+
+    const result = await (window as any).propertyOwner.setSession(
+      session.access_token,
+      session.refresh_token
+    );
+
+    return result.success;
+  } catch (error) {
+    console.error('Failed to sync session to main:', error);
+    return false;
+  }
+}

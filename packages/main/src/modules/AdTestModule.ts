@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { AdModifyScraper } from '../services/crawler/AdModifyScraper.js';
+import { loadFont, getNamePaths } from '../utils/koreanSignature.js';
 
 /**
  * 광고 테스트 모듈
@@ -488,6 +489,251 @@ export class AdTestModule implements AppModule {
         };
       } catch (error) {
         console.error('❌ (신)홍보확인서 테스트 오류:', error);
+
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    /**
+     * (구)홍보확인서 전자 서명 테스트
+     * - 이실장 로그인 후 ad_list 페이지에서 대기
+     * - 사용자가 수동으로 광고하기 버튼 클릭하여 verification 페이지로 이동
+     * - verification 페이지 감지 시 전자 서명 테스트 진행
+     * - 최종 제출 버튼은 클릭하지 않음 (테스트 모드)
+     */
+    ipcMain.handle('adTest:testOldVerification', async () => {
+      let browser;
+      try {
+        console.log(`📎 (구)홍보확인서 전자 서명 테스트 시작`);
+
+        // 1. 브라우저 시작
+        console.log('🌐 브라우저 시작 중...');
+        browser = await chromium.launch({
+          headless: false,
+          channel: 'chrome',
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-blink-features=AutomationControlled',
+          ],
+        });
+
+        const context = await browser.newContext({
+          viewport: { width: 1280, height: 720 },
+          userAgent:
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        });
+
+        const page = await context.newPage();
+
+        // 2. 이실장 로그인
+        console.log('🔐 이실장 로그인 중...');
+        const authService = new AipartnerAuthService();
+        let session;
+
+        try {
+          session = await authService.autoLogin(page);
+          console.log('✅ 자동 로그인 성공');
+        } catch (autoLoginError) {
+          console.log('⚠️  자동 로그인 실패, 수동 로그인으로 전환:', autoLoginError);
+          session = await authService.login(page);
+        }
+
+        if (!session || !session.cookies || session.cookies.length === 0) {
+          throw new Error('이실장 로그인에 실패했습니다');
+        }
+
+        console.log('✅ 로그인 성공');
+
+        // 3. 광고 목록 페이지로 이동
+        console.log('📍 광고 목록 페이지로 이동 중...');
+        await page.goto('https://www.aipartner.com/offerings/ad_list', {
+          waitUntil: 'networkidle',
+          timeout: 30000,
+        });
+        console.log('✅ 광고 목록 페이지 로드 완료');
+        console.log('');
+        console.log('🔔 ========================================');
+        console.log('🔔 지금 수동으로 광고하기 버튼을 클릭해주세요!');
+        console.log('🔔 (구)홍보확인서 매물을 선택하세요.');
+        console.log('🔔 verification 페이지로 이동하면 자동으로');
+        console.log('🔔 전자 서명 테스트가 시작됩니다.');
+        console.log('🔔 ========================================');
+        console.log('');
+
+        // 4. verification 페이지 이동 대기 (최대 5분)
+        console.log('⏳ verification 페이지 이동 대기 중... (최대 5분)');
+        await page.waitForFunction(
+          () => location.href.includes('/offerings/verification/'),
+          { timeout: 300000, polling: 1000 }
+        );
+        console.log('✅ verification 페이지 감지!');
+
+        await page.waitForTimeout(2000);
+
+        // 5. (구)홍보확인서 전자 서명 테스트
+        console.log('📎 (구)홍보확인서 - 전자 홍보확인서 작성 시작...');
+
+        // 5-0. 소유자명 미리 읽어두기 (나중에 typingOname에 입력해야 함)
+        let ownerName = '';
+        const inputOname = page.locator('input#inputOname');
+        if (await inputOname.count() > 0) {
+          ownerName = await inputOname.inputValue();
+          console.log(`📋 소유자명 복사: "${ownerName}"`);
+        }
+
+        // 5-1. 전자 홍보확인서 작성하기 라벨 클릭 (팝업 열기)
+        const elecConfirmLabel = page.locator('label[for="elecConfirmdocUrl"]');
+        if (await elecConfirmLabel.count() > 0) {
+          await elecConfirmLabel.click();
+          console.log('✅ 전자 홍보확인서 팝업 열기 완료');
+          await page.waitForTimeout(1500);
+        } else {
+          throw new Error('전자 홍보확인서 작성 라벨을 찾을 수 없습니다 (label[for="elecConfirmdocUrl"])');
+        }
+
+        // 5-2. 팝업 내 "작성하기" 버튼 클릭
+        const elecSendStartButton = page.locator('button#elecSendStart');
+        if (await elecSendStartButton.count() > 0) {
+          await elecSendStartButton.click();
+          console.log('✅ 전자 홍보확인서 "작성하기" 버튼 클릭 완료');
+          await page.waitForTimeout(2000);
+        } else {
+          throw new Error('"작성하기" 버튼을 찾을 수 없습니다 (#elecSendStart)');
+        }
+
+        // 5-3. Canvas에 체크 표시 그리기 (첫 번째 서명)
+        const canvas = page.locator('canvas#canvasSignature');
+        if (await canvas.count() > 0) {
+          console.log('📝 Canvas에 체크 표시 그리기 시작 (1/2)...');
+
+          const box = await canvas.boundingBox();
+          if (box) {
+            // Canvas 중앙에 체크 표시 그리기
+            const centerX = box.x + box.width / 2;
+            const centerY = box.y + box.height / 2;
+
+            // 체크 표시(✓) 그리기 - 중앙 기준, 1.3배 크기 + 자연스러운 오차
+            const checkSize = 30 * 1.3;  // 39
+            const widthRatio = 1.3;
+            const jitter = () => (Math.random() - 0.5) * 6;  // -3 ~ +3 픽셀 오차
+            const startX = centerX - checkSize * widthRatio / 2 + jitter();
+            const startY = centerY + jitter();
+            const midX = centerX - checkSize / 6 + jitter();
+            const midY = centerY + checkSize / 2 + jitter();
+            const endX = centerX + checkSize * widthRatio / 2 + jitter();
+            const endY = centerY - checkSize / 2 + jitter();
+
+            await page.mouse.move(startX, startY);
+            await page.mouse.down();
+            await page.mouse.move(midX, midY, { steps: 5 });
+            await page.mouse.move(endX, endY, { steps: 5 });
+            await page.mouse.up();
+
+            console.log(`✅ 첫 번째 체크 표시 그리기 완료 (중앙: ${centerX}, ${centerY})`);
+            await page.waitForTimeout(500);
+
+            // 5-4. "다음" 버튼 클릭 (onclick="saveImg()" 있는 버튼)
+            const nextButton = page.locator('button.next[onclick="saveImg();"]');
+            if (await nextButton.count() > 0) {
+              await nextButton.click();
+              console.log('✅ "다음" 버튼 클릭 완료');
+              await page.waitForTimeout(1500);
+            }
+
+            // 5-5. 소유자명 입력 (typingOname) - 다음 버튼 클릭 후 바로 입력
+            console.log(`📋 저장된 소유자명: "${ownerName}" (길이: ${ownerName.length})`);
+            const typingOname = page.locator('input#typingOname');
+            const typingOnameCount = await typingOname.count();
+            console.log(`📋 typingOname 요소 개수: ${typingOnameCount}`);
+
+            if (typingOnameCount > 0 && ownerName) {
+              await typingOname.fill(ownerName);
+              console.log(`✅ 소유자명 입력 완료: "${ownerName}"`);
+              await page.waitForTimeout(500);
+            } else {
+              console.log(`⚠️ 소유자명 입력 스킵 - 요소없음: ${typingOnameCount === 0}, 소유자명없음: ${!ownerName}`);
+            }
+
+            // 5-5-1. "다음 (2/3)" 버튼 클릭 (onclick="saveImg(true)" 있는 버튼)
+            const nextButton2of3 = page.locator('button.next[onclick="saveImg(true);"]');
+            if (await nextButton2of3.count() > 0) {
+              await nextButton2of3.click();
+              console.log('✅ "다음 (2/3)" 버튼 클릭 완료');
+              await page.waitForTimeout(1500);
+            }
+
+            // 5-6. 두 번째 서명 (3/3) - 소유자명 필기 서명
+            console.log('📝 두 번째 Canvas 대기 중...');
+            const canvas2 = page.locator('canvas#canvasSignature');
+            await canvas2.waitFor({ state: 'visible', timeout: 10000 });
+            await page.waitForTimeout(500);
+
+            const canvas2Count = await canvas2.count();
+            console.log(`📝 Canvas에 소유자명 서명 그리기 시작... (canvas2 개수: ${canvas2Count})`);
+
+            if (canvas2Count > 0 && ownerName) {
+              const box2 = await canvas2.boundingBox();
+              if (box2) {
+                // 폰트 로드 및 경로 추출
+                await loadFont();
+                const strokes = getNamePaths(ownerName, box2.width, box2.height);
+
+                console.log(`✏️ 소유자명 "${ownerName}" 서명 중... (${strokes.length}개 획)`);
+
+                // 각 획을 마우스로 그리기
+                for (const stroke of strokes) {
+                  if (stroke.length < 2) continue;
+
+                  // 첫 점으로 이동
+                  const first = stroke[0];
+                  await page.mouse.move(box2.x + first.x, box2.y + first.y);
+                  await page.mouse.down();
+
+                  // 나머지 점들 따라 그리기
+                  for (let i = 1; i < stroke.length; i++) {
+                    const pt = stroke[i];
+                    await page.mouse.move(box2.x + pt.x, box2.y + pt.y, { steps: 2 });
+                  }
+
+                  await page.mouse.up();
+                  await page.waitForTimeout(30); // 획 사이 짧은 딜레이
+                }
+
+                console.log(`✅ 소유자명 서명 완료: "${ownerName}"`);
+                await page.waitForTimeout(500);
+              }
+
+              // "다음" 버튼 클릭 (onclick="saveImg()" 있는 버튼) - 테스트용으로 비활성화
+              // const nextButton2 = page.locator('button.next[onclick="saveImg();"]');
+              // if (await nextButton2.count() > 0) {
+              //   await nextButton2.click();
+              //   console.log('✅ "다음 (3/3)" 버튼 클릭 완료');
+              //   await page.waitForTimeout(1500);
+              // }
+              console.log('⏸️ "다음 (3/3)" 버튼 클릭 생략 (테스트 모드)');
+            }
+          }
+        } else {
+          throw new Error('Canvas를 찾을 수 없습니다 (#canvasSignature)');
+        }
+
+        console.log('');
+        console.log('✅ ========================================');
+        console.log('✅ (구)홍보확인서 전자 서명 테스트 완료!');
+        console.log('✅ 최종 제출 버튼은 클릭하지 않았습니다.');
+        console.log('✅ 브라우저에서 결과를 확인해주세요.');
+        console.log('✅ ========================================');
+
+        return {
+          success: true,
+          message: '(구)홍보확인서 전자 서명 테스트 완료',
+        };
+      } catch (error) {
+        console.error('❌ (구)홍보확인서 테스트 오류:', error);
 
         return {
           success: false,

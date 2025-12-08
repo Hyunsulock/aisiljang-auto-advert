@@ -10,7 +10,7 @@ import {
 } from '@tanstack/react-table';
 import { RefreshCw, Package, ChevronDown, Filter, Search } from 'lucide-react';
 import { type Offer, type CompetingAd, useOfferColumns, fuzzyFilter, parsePrice } from '../components/offers/columns';
-import { getPropertyOwnerInfo, type PropertyOwnerInfo } from '../lib/supabase';
+import { getPropertyOwnerInfo, syncSessionToMain, type PropertyOwnerInfo } from '../lib/supabase';
 import { PropertyOwnerDialog, type PropertyOwnerFormData, type PropertyOwnerFiles } from '../components/offers/PropertyOwnerDialog';
 import { offers as offersAPI, crawler } from '@app/preload';
 
@@ -188,6 +188,13 @@ function OffersPage() {
     if (!selectedProperty) return;
 
     try {
+      // Main 프로세스에 세션 동기화 (RLS 정책을 위해 필요)
+      const sessionSynced = await syncSessionToMain();
+      if (!sessionSynced) {
+        alert('세션 동기화에 실패했습니다. 다시 로그인해주세요.');
+        return;
+      }
+
       // 기존 소유자 정보 가져오기
       const key = `${selectedProperty.name}|${selectedProperty.dong || ''}|${selectedProperty.ho || ''}`;
       const existingOwnerInfo = ownerInfoMap.get(key);

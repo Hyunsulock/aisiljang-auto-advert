@@ -6,6 +6,7 @@ import { RE_ADVERTISE_STEPS, type ReAdvertiseStep } from '../batch/BatchService.
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { loadFont, getNamePaths } from '../../utils/koreanSignature.js';
 
 export type StepProgressCallback = (step: ReAdvertiseStep) => void;
 
@@ -184,10 +185,17 @@ export class AdRemoveScraper {
             reportStep(RE_ADVERTISE_STEPS.FOUND);
 
             // 재광고 버튼 찾기 및 클릭
-            const reAdButton = row.locator('.management.GTM_offerings_ad_list_rocket_add.btn-re-ad-pop');
+            // (구)홍보확인서: .management.GTM_offerings_ad_list_rocket_add.btn-re-ad-pop
+            // (신)홍보확인서: .management.naverReAd
+            let reAdButton = row.locator('.management.GTM_offerings_ad_list_rocket_add.btn-re-ad-pop');
 
             if (await reAdButton.count() === 0) {
-              throw new Error('재광고 버튼을 찾을 수 없습니다');
+              // (신)홍보확인서 버튼 시도
+              reAdButton = row.locator('.management.naverReAd');
+            }
+
+            if (await reAdButton.count() === 0) {
+              throw new Error('재광고 버튼을 찾을 수 없습니다 (구홍보/신홍보 모두 확인)');
             }
 
             console.log('🔘 재광고 버튼 클릭 중...');
@@ -195,33 +203,44 @@ export class AdRemoveScraper {
             await reAdButton.click();
             await this.delay(1000);
 
-            // 첫 번째 팝업 대기 (.wrap-pop-tooltip.pop-re-ad.active)
-            console.log('⏳ 재광고 선택 팝업 (1차) 대기 중...');
-            await page.waitForSelector('.wrap-pop-tooltip.pop-re-ad.active', { timeout: 5000 });
-            console.log('✅ 재광고 선택 팝업 (1차) 나타남');
-            reportStep(RE_ADVERTISE_STEPS.POPUP_OPENED);
+            // (신)홍보확인서 여부 확인 - 팝업 흐름이 다름
+            const isNewVerification = offer.adMethod && offer.adMethod.includes('(신)홍보확인서');
 
-            await this.delay(500);
+            if (isNewVerification) {
+              // (신)홍보확인서: 바로 동의 팝업으로 이동 (1차 팝업 없음)
+              console.log('📎 (신)홍보확인서 - 바로 동의 팝업 대기 중...');
+              await page.waitForSelector('.SYlayerPopupWrap.monitoring-regist-pop', { timeout: 5000 });
+              console.log('✅ 동의 팝업 나타남');
+              reportStep(RE_ADVERTISE_STEPS.CONSENT_POPUP);
+            } else {
+              // (구)홍보확인서 / 로켓등록: 1차 팝업 → 2차 팝업
+              console.log('⏳ 재광고 선택 팝업 (1차) 대기 중...');
+              await page.waitForSelector('.wrap-pop-tooltip.pop-re-ad.active', { timeout: 5000 });
+              console.log('✅ 재광고 선택 팝업 (1차) 나타남');
+              reportStep(RE_ADVERTISE_STEPS.POPUP_OPENED);
 
-            // 활성화된 팝업 안에서 "바로 재광고" 라디오 버튼 선택
-            console.log('🔘 "바로 재광고" 라디오 버튼 선택 중...');
-            reportStep(RE_ADVERTISE_STEPS.SELECTING_DIRECT);
-            const activePopup = page.locator('.wrap-pop-tooltip.pop-re-ad.active');
-            const directReAdRadio = activePopup.locator('.radio-check.naverReAd input[type="radio"]#reAd2');
+              await this.delay(500);
 
-            if (await directReAdRadio.count() === 0) {
-              throw new Error('활성화된 팝업에서 바로 재광고 라디오 버튼을 찾을 수 없습니다');
+              // 활성화된 팝업 안에서 "바로 재광고" 라디오 버튼 선택
+              console.log('🔘 "바로 재광고" 라디오 버튼 선택 중...');
+              reportStep(RE_ADVERTISE_STEPS.SELECTING_DIRECT);
+              const activePopup = page.locator('.wrap-pop-tooltip.pop-re-ad.active');
+              const directReAdRadio = activePopup.locator('.radio-check.naverReAd input[type="radio"]#reAd2');
+
+              if (await directReAdRadio.count() === 0) {
+                throw new Error('활성화된 팝업에서 바로 재광고 라디오 버튼을 찾을 수 없습니다');
+              }
+
+              await directReAdRadio.click();
+              await this.delay(1500);
+              console.log('✅ "바로 재광고" 라디오 버튼 선택 완료');
+
+              // 두 번째 팝업 대기 (.SYlayerPopupWrap.monitoring-regist-pop)
+              console.log('⏳ 재광고 안내 팝업 (2차) 대기 중...');
+              await page.waitForSelector('.SYlayerPopupWrap.monitoring-regist-pop', { timeout: 5000 });
+              console.log('✅ 재광고 안내 팝업 (2차) 나타남');
+              reportStep(RE_ADVERTISE_STEPS.CONSENT_POPUP);
             }
-
-            await directReAdRadio.click();
-            await this.delay(1500);
-            console.log('✅ "바로 재광고" 라디오 버튼 선택 완료');
-
-            // 두 번째 팝업 대기 (.SYlayerPopupWrap.monitoring-regist-pop)
-            console.log('⏳ 재광고 안내 팝업 (2차) 대기 중...');
-            await page.waitForSelector('.SYlayerPopupWrap.monitoring-regist-pop', { timeout: 5000 });
-            console.log('✅ 재광고 안내 팝업 (2차) 나타남');
-            reportStep(RE_ADVERTISE_STEPS.CONSENT_POPUP);
 
             await this.delay(1000);
 
@@ -301,74 +320,143 @@ export class AdRemoveScraper {
             reportStep(RE_ADVERTISE_STEPS.VERIFICATION_PAGE);
             await this.delay(2000);
 
-            // (구)홍보확인서인 경우 전자 홍보확인서 작성 버튼 클릭
+            // (구)홍보확인서인 경우 전자 홍보확인서 작성
             if (offer.adMethod && offer.adMethod.includes('(구)홍보확인서')) {
               console.log('📎 (구)홍보확인서 - 전자 홍보확인서 작성 시작...');
               reportStep(RE_ADVERTISE_STEPS.DRAWING_SIGNATURE);
 
               try {
-                // 1. 전자 홍보확인서 작성하기 버튼 클릭 (팝업 열기)
-                const elecConfirmButton = page.locator('input#elecConfirmdocUrl');
-                if (await elecConfirmButton.count() > 0) {
-                  await elecConfirmButton.click();
+                // 0. 소유자명 미리 읽어두기 (나중에 typingOname에 입력해야 함)
+                let ownerName = '';
+                const inputOname = page.locator('input#inputOname');
+                if (await inputOname.count() > 0) {
+                  ownerName = await inputOname.inputValue();
+                  console.log(`📋 소유자명 복사: "${ownerName}"`);
+                }
+
+                // 1. 전자 홍보확인서 작성하기 라벨 클릭 (팝업 열기)
+                const elecConfirmLabel = page.locator('label[for="elecConfirmdocUrl"]');
+                if (await elecConfirmLabel.count() > 0) {
+                  await elecConfirmLabel.click();
                   console.log('✅ 전자 홍보확인서 팝업 열기 완료');
                   await this.delay(1500);
                 } else {
-                  console.warn('⚠️ 전자 홍보확인서 작성 버튼을 찾을 수 없습니다');
+                  throw new Error('전자 홍보확인서 작성 라벨을 찾을 수 없습니다');
                 }
 
                 // 2. 팝업 내 "작성하기" 버튼 클릭
                 const elecSendStartButton = page.locator('button#elecSendStart');
                 if (await elecSendStartButton.count() > 0) {
                   await elecSendStartButton.click();
-                  console.log('✅ 전자 홍보확인서 "작성하기" 버튼 클릭 완료');
+                  console.log('✅ "작성하기" 버튼 클릭 완료');
                   await this.delay(2000);
                 } else {
-                  console.warn('⚠️ "작성하기" 버튼을 찾을 수 없습니다');
+                  throw new Error('"작성하기" 버튼을 찾을 수 없습니다');
                 }
 
-                // 3. Canvas에 체크 표시 그리기
+                // 3. 1단계 (1/3) - Canvas에 체크 표시 그리기
                 const canvas = page.locator('canvas#canvasSignature');
                 if (await canvas.count() > 0) {
-                  console.log('📝 Canvas에 체크 표시 그리기 시작...');
-
+                  console.log('📝 Canvas에 체크 표시 그리기 (1/3)...');
                   const box = await canvas.boundingBox();
                   if (box) {
-                    // Canvas 왼쪽 상단 영역에 체크 표시 그리기
-                    // 보통 체크박스는 왼쪽 위쪽에 위치
-                    const baseX = box.x + 100;  // Canvas 시작점에서 100px 오른쪽
-                    const baseY = box.y + 100;  // Canvas 시작점에서 100px 아래
-
-                    // 체크 표시(✓) 그리기
-                    const startX = baseX;
-                    const startY = baseY + 10;
-                    const midX = baseX + 15;
-                    const midY = baseY + 25;
-                    const endX = baseX + 40;
-                    const endY = baseY - 10;
+                    const centerX = box.x + box.width / 2;
+                    const centerY = box.y + box.height / 2;
+                    const checkSize = 30 * 1.3;
+                    const widthRatio = 1.3;
+                    const jitter = () => (Math.random() - 0.5) * 6;
+                    const startX = centerX - checkSize * widthRatio / 2 + jitter();
+                    const startY = centerY + jitter();
+                    const midX = centerX - checkSize / 6 + jitter();
+                    const midY = centerY + checkSize / 2 + jitter();
+                    const endX = centerX + checkSize * widthRatio / 2 + jitter();
+                    const endY = centerY - checkSize / 2 + jitter();
 
                     await page.mouse.move(startX, startY);
                     await page.mouse.down();
                     await page.mouse.move(midX, midY, { steps: 5 });
                     await page.mouse.move(endX, endY, { steps: 5 });
                     await page.mouse.up();
-
                     console.log('✅ 체크 표시 그리기 완료');
                     await this.delay(500);
 
-                    // 4. "다음 (1/2)" 버튼 클릭
-                    const nextButton = page.locator('button.next');
-                    if (await nextButton.count() > 0) {
-                      await nextButton.click();
-                      console.log('✅ "다음 (1/2)" 버튼 클릭 완료');
+                    // 4. "다음" 버튼 클릭 (1/3 → 2/3)
+                    const nextButton1 = page.locator('button.next[onclick="saveImg();"]');
+                    if (await nextButton1.count() > 0) {
+                      await nextButton1.click();
+                      console.log('✅ "다음 (1/3)" 버튼 클릭 완료');
                       await this.delay(1500);
+                    }
+
+                    // 5. 2단계 (2/3) - 소유자명 입력
+                    const typingOname = page.locator('input#typingOname');
+                    if (await typingOname.count() > 0 && ownerName) {
+                      await typingOname.fill(ownerName);
+                      console.log(`✅ 소유자명 입력 완료: "${ownerName}"`);
+                      await this.delay(500);
+                    }
+
+                    // 6. "다음 (2/3)" 버튼 클릭 (2/3 → 3/3)
+                    const nextButton2of3 = page.locator('button.next[onclick="saveImg(true);"]');
+                    if (await nextButton2of3.count() > 0) {
+                      await nextButton2of3.click();
+                      console.log('✅ "다음 (2/3)" 버튼 클릭 완료');
+                      await this.delay(1500);
+                    }
+
+                    // 7. 3단계 (3/3) - 소유자명 필기 서명
+                    console.log('📝 소유자명 필기 서명 (3/3)...');
+                    const canvas2 = page.locator('canvas#canvasSignature');
+                    await canvas2.waitFor({ state: 'visible', timeout: 10000 });
+                    await this.delay(500);
+
+                    if (await canvas2.count() > 0 && ownerName) {
+                      const box2 = await canvas2.boundingBox();
+                      if (box2) {
+                        await loadFont();
+                        const strokes = getNamePaths(ownerName, box2.width, box2.height);
+                        console.log(`✏️ "${ownerName}" 서명 중... (${strokes.length}개 획)`);
+
+                        for (const stroke of strokes) {
+                          if (stroke.length < 2) continue;
+                          const first = stroke[0];
+                          await page.mouse.move(box2.x + first.x, box2.y + first.y);
+                          await page.mouse.down();
+                          for (let i = 1; i < stroke.length; i++) {
+                            const pt = stroke[i];
+                            await page.mouse.move(box2.x + pt.x, box2.y + pt.y, { steps: 2 });
+                          }
+                          await page.mouse.up();
+                          await this.delay(30);
+                        }
+                        console.log(`✅ 소유자명 서명 완료: "${ownerName}"`);
+                        await this.delay(500);
+                      }
+
+                      // 8. "다음 (3/3)" 버튼 클릭
+                      const nextButton3 = page.locator('button.next[onclick="saveImg();"]');
+                      if (await nextButton3.count() > 0) {
+                        await nextButton3.click();
+                        console.log('✅ "다음 (3/3)" 버튼 클릭 완료');
+                        await this.delay(1500);
+                      }
+
+                      // 9. "작성완료" 버튼 클릭
+                      const elecSendEndButton = page.locator('button#elecSendEnd');
+                      if (await elecSendEndButton.count() > 0) {
+                        await elecSendEndButton.click();
+                        console.log('✅ "작성완료" 버튼 클릭 완료');
+                        await this.delay(2000);
+                      }
                     }
                   }
                 } else {
-                  console.warn('⚠️ Canvas를 찾을 수 없습니다');
+                  throw new Error('Canvas를 찾을 수 없습니다');
                 }
+
+                console.log('✅ (구)홍보확인서 전자 서명 완료');
               } catch (error) {
-                console.error('❌ 전자 홍보확인서 작성 실패:', error);
+                console.error('❌ (구)홍보확인서 전자 서명 실패:', error);
                 throw error;
               }
             }
@@ -498,9 +586,11 @@ export class AdRemoveScraper {
             await this.delay(500);
 
             // 저장 확인 다이얼로그 핸들러 - adMethod에 따라 다른 메시지 확인
-            const expectedMessage = offer.adMethod && offer.adMethod.includes('(신)홍보확인서')
-              ? '홍보확인이 접수'
-              : '로켓전송이 완료';
+            // (신)홍보확인서: "네이버에 매물을 전송했어요"
+            // (구)홍보확인서/로켓등록: "로켓전송이 완료"
+            const expectedMessages = offer.adMethod && offer.adMethod.includes('(신)홍보확인서')
+              ? ['네이버에 매물을 전송했어요', '홍보확인이 접수']
+              : ['로켓전송이 완료'];
 
             const dialogPromise = new Promise<boolean>((resolve) => {
               const timeoutId = setTimeout(() => {
@@ -514,7 +604,7 @@ export class AdRemoveScraper {
                 const message = dialog.message();
                 console.log(`📢 다이얼로그: ${message}`);
 
-                if (message.includes(expectedMessage)) {
+                if (expectedMessages.some(expected => message.includes(expected))) {
                   console.log('☑️  확인 버튼 클릭 중...');
                   await this.delay(500);
                   await dialog.accept();

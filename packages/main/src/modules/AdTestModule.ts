@@ -707,14 +707,21 @@ export class AdTestModule implements AppModule {
                 await page.waitForTimeout(500);
               }
 
-              // "다음" 버튼 클릭 (onclick="saveImg()" 있는 버튼) - 테스트용으로 비활성화
-              // const nextButton2 = page.locator('button.next[onclick="saveImg();"]');
-              // if (await nextButton2.count() > 0) {
-              //   await nextButton2.click();
-              //   console.log('✅ "다음 (3/3)" 버튼 클릭 완료');
-              //   await page.waitForTimeout(1500);
-              // }
-              console.log('⏸️ "다음 (3/3)" 버튼 클릭 생략 (테스트 모드)');
+              // "다음" 버튼 클릭 (onclick="saveImg()" 있는 버튼)
+              const nextButton2 = page.locator('button.next[onclick="saveImg();"]');
+              if (await nextButton2.count() > 0) {
+                await nextButton2.click();
+                console.log('✅ "다음 (3/3)" 버튼 클릭 완료');
+                await page.waitForTimeout(1500);
+              }
+
+              // "작성완료" 버튼 클릭 (#elecSendEnd)
+              const elecSendEndButton = page.locator('button#elecSendEnd');
+              if (await elecSendEndButton.count() > 0) {
+                await elecSendEndButton.click();
+                console.log('✅ "작성완료" 버튼 클릭 완료');
+                await page.waitForTimeout(2000);
+              }
             }
           }
         } else {
@@ -723,8 +730,7 @@ export class AdTestModule implements AppModule {
 
         console.log('');
         console.log('✅ ========================================');
-        console.log('✅ (구)홍보확인서 전자 서명 테스트 완료!');
-        console.log('✅ 최종 제출 버튼은 클릭하지 않았습니다.');
+        console.log('✅ (구)홍보확인서 전자 서명 완료!');
         console.log('✅ 브라우저에서 결과를 확인해주세요.');
         console.log('✅ ========================================');
 

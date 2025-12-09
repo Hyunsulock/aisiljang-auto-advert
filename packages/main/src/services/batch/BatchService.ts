@@ -161,15 +161,15 @@ export class BatchService {
 
     const items = await this.batchRepo.findItemsByBatchId(batchId);
 
-    // 매물 정보 조회
-    const offerIds = items.map(item => item.offerId);
+    // 매물 정보 조회 (null/undefined offerId 필터링)
+    const offerIds = items.map(item => item.offerId).filter((id): id is number => id != null);
     const offers = await this.offerRepo.findByIds(offerIds);
     const offerMap = new Map(offers.map(o => [o.id, o]));
 
     // items에 offer 정보 추가
     const itemsWithOffer = items.map(item => ({
       ...item,
-      offer: offerMap.get(item.offerId) || null,
+      offer: item.offerId != null ? offerMap.get(item.offerId) || null : null,
     }));
 
     return {
@@ -220,8 +220,8 @@ export class BatchService {
       throw new Error('배치 아이템이 없습니다');
     }
 
-    // 매물 정보 조회
-    const offerIds = batchItems.map(item => item.offerId);
+    // 매물 정보 조회 (null/undefined offerId 필터링)
+    const offerIds = batchItems.map(item => item.offerId).filter((id): id is number => id != null);
     const dbOffers = await this.offerRepo.findByIds(offerIds);
 
     if (dbOffers.length === 0) {
@@ -598,8 +598,8 @@ export class BatchService {
       await this.batchRepo.resetItemStatus(item.id);
     }
 
-    // 매물 정보 조회
-    const offerIds = failedItems.map(item => item.offerId);
+    // 매물 정보 조회 (null/undefined offerId 필터링)
+    const offerIds = failedItems.map(item => item.offerId).filter((id): id is number => id != null);
     const dbOffers = await this.offerRepo.findByIds(offerIds);
 
     if (dbOffers.length === 0) {

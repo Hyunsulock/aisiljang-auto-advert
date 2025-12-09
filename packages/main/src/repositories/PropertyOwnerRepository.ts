@@ -97,18 +97,30 @@ export class PropertyOwnerRepository {
 
       return data;
     } else {
-      // 생성
+      // 생성 - agency_id가 필수임
+      if (!verificationInfo.agency_id) {
+        throw new Error('agency_id is required for inserting verification info');
+      }
+
+      const insertData = {
+        property_id: propertyId,
+        agency_id: verificationInfo.agency_id,
+        owner_type: verificationInfo.owner_type,
+        document_file_path: verificationInfo.document_file_path,
+        power_of_attorney_file_path: verificationInfo.power_of_attorney_file_path,
+      };
+
+      console.log('📝 Verification info insert data:', insertData);
+
       const { data, error } = await supabase
         .from('property_verification_info')
-        .insert({
-          property_id: propertyId,
-          ...verificationInfo,
-        })
+        .insert(insertData)
         .select()
         .single();
 
       if (error) {
         console.error('❌ Verification info insert 실패:', error);
+        console.error('Insert data was:', insertData);
         throw new Error(`Failed to insert verification info: ${error.message}`);
       }
 
